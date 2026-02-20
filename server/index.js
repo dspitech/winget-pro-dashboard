@@ -1,495 +1,627 @@
 #!/usr/bin/env node
-/**
- * WinGet Admin Console — Serveur API Local
- * ==========================================
- * Lance ce serveur sur votre machine Windows pour connecter
- * le dashboard React avec winget via PowerShell.
- *
- * Usage:
- *   cd server
- *   npm install
- *   npm start
- *
- * Port: 3001 (http://localhost:3001)
- */
-
 const express = require("express");
 const cors = require("cors");
 const { exec, spawn } = require("child_process");
+const os = require("os");
 
 const app = express();
 const PORT = 3001;
 
-app.use(cors({ origin: "*" }));
-app.use(express.json());
-
-// ─── Utilitaires ────────────────────────────────────────────────────────────
+// ─── DÉTECTION / AUTO-ÉLÉVATION ─────────────────────────────────────────────
 
 /**
- * Exécute une commande PowerShell et retourne la sortie en string
+ * Vérifie si le processus actuel possède les droits administrateur
  */
-function runPowerShell(command, timeoutMs = 60000) {
-  return new Promise((resolve, reject) => {
-    const ps = `powershell -NonInteractive -NoProfile -Command "${command.replace(/"/g, '\\"')}"`;
-    exec(ps, { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err && !stdout) return reject(err);
-      resolve(stdout || "");
+function checkIsAdmin() {
+  return new Promise((resolve) => {
+    // La commande 'net session' échoue systématiquement sans droits admin
+    exec("net session", (err) => {
+      resolve(!err);
     });
   });
 }
 
 /**
- * Parse la sortie texte de `winget list`
- * Extrait: Nom, ID, Version, Disponible, Source
+ * Relance le serveur en mode Administrateur si nécessaire
  */
-function parseWingetList(output) {
-  const lines = output.split(/\r?\n/);
-  const apps = [];
+async function ensureAdmin() {
+  const isAdmin = await checkIsAdmin();
+  
+  if (!isAdmin && process.platform === "win32") {
+    console.log("🛡️  Droits administrateur requis. Tentative d'élévation...");
+    
+    // Commande pour relancer node avec les privilèges admin via PowerShell
+    const command = `Start-Process node -ArgumentList '"${process.argv[1]}"' -Verb RunAs`;
+    
+    exec(`powershell -Command "${command}"`, (err) => {
+      if (err) {
+        console.error("❌ Échec de l'élévation des privilèges :", err.message);
+      }
+      process.exit(); // Ferme l'instance actuelle (non-admin)
+    });
+    return false;
+  }
+  return true;
+}
 
-  // Trouver la ligne d'en-tête (contient "Name" et "Id")
-  let headerIdx = -1;
-  let headerLine = "";
-  for (let i = 0; i < lines.length; i++) {
-    if (/\bName\b.*\bId\b.*\bVersion\b/i.test(lines[i])) {
-      headerIdx = i;
-      headerLine = lines[i];
-      break;
-    }
+// ─── INITIALISATION DU SERVEUR ──────────────────────────────────────────────
+
+async function init() {
+  // On ne lance le reste que si on est admin
+  if (!(await ensureAdmin())) return;
+  app.use(cors({ origin: "*" }));
+  app.use(express.json());
+
+  function runPowerShell(command, timeoutMs = 60000) {
+    return new Promise((resolve, reject) => {
+      // Utiliser spawn pour mieux gérer les erreurs
+      const child = spawn("powershell", [
+        "-NonInteractive",
+        "-NoProfile",
+        "-Command",
+        command
+      ], {
+        shell: false,
+        windowsHide: true
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.on("data", (data) => {
+        stdout += data.toString();
+      });
+
+      child.stderr.on("data", (data) => {
+        stderr += data.toString();
+      });
+
+      const timeout = setTimeout(() => {
+        child.kill();
+        reject(new Error(`Timeout après ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      child.on("close", (code) => {
+        clearTimeout(timeout);
+        // Winget peut retourner code 1 même en cas de succès partiel
+        // Si on a du stdout, on le retourne même si code !== 0
+        if (stdout.trim()) {
+          resolve(stdout);
+        } else if (code === 0) {
+          resolve(stdout || "");
+        } else {
+          const error = new Error(`Command failed with code ${code}: ${stderr || "No output"}`);
+          error.code = code;
+          reject(error);
+        }
+      });
+
+      child.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
   }
 
-  if (headerIdx === -1) return apps;
+  // ─── Helpers parsing sortie winget (tableau texte) ─────────────────────────
 
-  // Détecter les colonnes par leurs positions
-  const nameStart = headerLine.search(/Name/i);
-  const idStart = headerLine.search(/Id/i);
-  const versionStart = headerLine.search(/Version/i);
-  const availableStart = headerLine.search(/Available/i);
-  const sourceStart = headerLine.search(/Source/i);
+  function findDataStartIndex(lines) {
+    const idx = lines.findIndex((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      const noDashes = trimmed.replace(/-/g, "").trim();
+      return !noDashes && trimmed.includes("-");
+    });
+    return idx >= 0 ? idx + 1 : 0;
+  }
 
-  // Lire les données (après la ligne de séparation)
-  for (let i = headerIdx + 2; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim() || line.trim().startsWith("---")) continue;
-    if (line.trim().length < 5) continue;
+  function parseWingetList(output) {
+    const lines = output.split(/\r?\n/).map((l) => l.replace(/\s+$/, ""));
+    const start = findDataStartIndex(lines);
+    const apps = [];
 
-    const name = line.substring(nameStart, idStart).trim();
-    const id = line.substring(idStart, versionStart).trim();
-    const version = availableStart > 0
-      ? line.substring(versionStart, availableStart).trim()
-      : line.substring(versionStart, sourceStart > 0 ? sourceStart : undefined).trim();
-    const available = availableStart > 0 && sourceStart > 0
-      ? line.substring(availableStart, sourceStart).trim()
-      : "";
-    const source = sourceStart > 0 ? line.substring(sourceStart).trim() : "winget";
+    for (let i = start; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line || !line.trim()) continue;
+      // Format standard : Nom (0-34) | Id (35-69) | Version (70+)
+      const name = line.slice(0, 35).trim();
+      const id = line.slice(35, 70).trim();
+      const rest = line.slice(70).trim();
+      if (!name || !id || !rest) continue;
+      const [version] = rest.split(/\s+/);
+      if (!version) continue;
+      apps.push({ name, id, version });
+    }
+    return apps;
+  }
 
-    if (name && id && version) {
-      apps.push({
-        name,
-        id,
-        version,
-        available: available || null,
-        source: source || "winget",
-        status: available ? "update-available" : "up-to-date",
+  function parseWingetUpgrade(output) {
+    const lines = output.split(/\r?\n/).map((l) => l.replace(/\s+$/, ""));
+    const start = findDataStartIndex(lines);
+    const apps = [];
+
+    for (let i = start; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line || !line.trim()) continue;
+      const name = line.slice(0, 35).trim();
+      const id = line.slice(35, 70).trim();
+      const rest = line.slice(70).trim();
+      if (!name || !id || !rest) continue;
+      const parts = rest.split(/\s+/).filter(Boolean);
+      if (parts.length < 2) continue;
+      const [currentVersion, availableVersion] = parts;
+      apps.push({ name, id, currentVersion, availableVersion });
+    }
+    return apps;
+  }
+
+  function parseWingetSearch(output) {
+    const lines = output.split(/\r?\n/).map((l) => l.replace(/\s+$/, ""));
+    const start = findDataStartIndex(lines);
+    const results = [];
+
+    for (let i = start; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line || !line.trim()) continue;
+      const name = line.slice(0, 35).trim();
+      const id = line.slice(35, 70).trim();
+      const rest = line.slice(70).trim();
+      if (!name || !id || !rest) continue;
+      const parts = rest.split(/\s+/).filter(Boolean);
+      const version = parts[0] || "N/A";
+      const source = parts[1] || "winget";
+      results.push({ name, id, version, source });
+    }
+    return results;
+  }
+
+  function setupSSE(res) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    if (typeof res.flushHeaders === "function") {
+      res.flushHeaders();
+    }
+    const sendEvent = (type, data) => {
+      res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+    };
+    return sendEvent;
+  }
+
+  // ─── ROUTES API (SIMPLIFIÉES CAR LE SERVEUR EST DÉJÀ ADMIN) ────────────────
+
+  app.get("/api/status", async (req, res) => {
+    try {
+      const output = await runPowerShell("winget --version", 5000);
+      res.json({ 
+        ok: true, 
+        isAdmin: true,
+        wingetVersion: output.trim(),
+        platform: `${os.platform()} ${os.release()}`,
+        hostname: os.hostname(),
+        user: os.userInfo().username,
+      });
+    } catch (err) {
+      res.status(503).json({ ok: false, error: "winget non disponible" });
+    }
+  });
+
+  // ─── Inventaire complet des applications installées ────────────────────────
+
+  app.get("/api/inventory", async (req, res) => {
+    try {
+      let listOutput = "";
+      let upgradeOutput = "";
+
+      // Essayer d'abord avec la commande standard
+      try {
+        listOutput = await runPowerShell("winget list --accept-source-agreements", 120000);
+      } catch (err) {
+        // Si ça échoue, essayer sans --accept-source-agreements
+        console.warn("Tentative avec --accept-source-agreements échouée, réessai sans...");
+        try {
+          listOutput = await runPowerShell("winget list", 120000);
+        } catch (err2) {
+          console.error("Erreur /api/inventory (list):", err2);
+          return res.status(500).json({ error: `Erreur lors de l'inventaire winget: ${err2.message}` });
+        }
+      }
+
+      // Essayer de récupérer les mises à jour (non bloquant)
+      try {
+        upgradeOutput = await runPowerShell("winget upgrade --include-unknown --accept-source-agreements", 120000);
+      } catch (err) {
+        try {
+          upgradeOutput = await runPowerShell("winget upgrade --include-unknown", 120000);
+        } catch (err2) {
+          console.warn("Impossible de récupérer les mises à jour:", err2.message);
+          upgradeOutput = "";
+        }
+      }
+
+      const listApps = parseWingetList(listOutput);
+      const upgradeApps = upgradeOutput ? parseWingetUpgrade(upgradeOutput) : [];
+      const upgradesById = new Map();
+      for (const u of upgradeApps) {
+        upgradesById.set(u.id, u);
+      }
+
+      const apps = listApps.map((app) => {
+        const up = upgradesById.get(app.id);
+        const available = up?.availableVersion || null;
+        const status = available ? "update-available" : "up-to-date";
+        return {
+          name: app.name,
+          id: app.id,
+          version: app.version,
+          available,
+          source: "winget",
+          status,
+        };
+      });
+
+      const total = apps.length;
+      const updates = apps.filter((a) => a.status === "update-available").length;
+      const upToDate = total - updates;
+
+      res.json({
+        apps,
+        total,
+        upToDate,
+        updates,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("Erreur /api/inventory:", err);
+      res.status(500).json({ error: `Erreur lors de l'inventaire winget: ${err.message}` });
+    }
+  });
+
+  // ─── Recherche de packages ──────────────────────────────────────────────────
+
+  app.get("/api/search", async (req, res) => {
+    const q = (req.query.q || "").toString().trim();
+    if (!q) {
+      return res.status(400).json({ error: "Paramètre q requis" });
+    }
+    try {
+      const output = await runPowerShell(
+        `winget search "${q.replace(/"/g, '\\"')}" --accept-source-agreements`,
+        60000
+      );
+      const results = parseWingetSearch(output);
+      res.json({
+        results,
+        query: q,
+        total: results.length,
+      });
+    } catch (err) {
+      console.error("Erreur /api/search:", err);
+      res.status(500).json({ error: "Erreur lors de la recherche winget" });
+    }
+  });
+
+  // ─── Mises à jour disponibles ──────────────────────────────────────────────
+
+  app.get("/api/updates", async (req, res) => {
+    try {
+      let output = "";
+      
+      // Essayer d'abord avec --accept-source-agreements
+      try {
+        output = await runPowerShell(
+          "winget upgrade --include-unknown --accept-source-agreements",
+          120000
+        );
+      } catch (err) {
+        // Si ça échoue, essayer sans --accept-source-agreements
+        try {
+          output = await runPowerShell(
+            "winget upgrade --include-unknown",
+            120000
+          );
+        } catch (err2) {
+          // Si ça échoue aussi, cela peut signifier qu'il n'y a pas de mises à jour disponibles
+          // Winget retourne parfois un code d'erreur dans ce cas, ce qui est normal
+          console.warn("Aucune mise à jour disponible ou erreur winget:", err2.message);
+          return res.json({
+            updates: [],
+            total: 0,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+      
+      // Si la sortie est vide, il n'y a pas de mises à jour
+      if (!output || !output.trim()) {
+        return res.json({
+          updates: [],
+          total: 0,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      
+      const upgrades = parseWingetUpgrade(output).map((app) => ({
+        name: app.name,
+        id: app.id,
+        version: app.currentVersion,
+        available: app.availableVersion,
+        source: "winget",
+        status: "update-available",
+      }));
+
+      res.json({
+        updates: upgrades,
+        total: upgrades.length,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("Erreur /api/updates:", err);
+      // En cas d'erreur, retourner une liste vide plutôt qu'une erreur 500
+      res.json({
+        updates: [],
+        total: 0,
+        timestamp: new Date().toISOString(),
+        error: err.message,
       });
     }
-  }
-
-  return apps;
-}
-
-/**
- * Parse la sortie de `winget search`
- */
-function parseWingetSearch(output) {
-  const lines = output.split(/\r?\n/);
-  const results = [];
-
-  let headerIdx = -1;
-  let headerLine = "";
-  for (let i = 0; i < lines.length; i++) {
-    if (/\bName\b.*\bId\b.*\bVersion\b/i.test(lines[i])) {
-      headerIdx = i;
-      headerLine = lines[i];
-      break;
-    }
-  }
-
-  if (headerIdx === -1) return results;
-
-  const nameStart = headerLine.search(/Name/i);
-  const idStart = headerLine.search(/Id/i);
-  const versionStart = headerLine.search(/Version/i);
-  const matchStart = headerLine.search(/Match/i);
-  const sourceStart = headerLine.search(/Source/i);
-
-  for (let i = headerIdx + 2; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim() || line.trim().startsWith("---")) continue;
-    if (line.trim().length < 5) continue;
-
-    const name = line.substring(nameStart, idStart).trim();
-    const id = line.substring(idStart, versionStart).trim();
-    const version = matchStart > 0
-      ? line.substring(versionStart, matchStart).trim()
-      : line.substring(versionStart, sourceStart > 0 ? sourceStart : undefined).trim();
-    const source = sourceStart > 0 ? line.substring(sourceStart).trim() : "winget";
-
-    if (name && id) {
-      results.push({ name, id, version: version || "N/A", source: source || "winget" });
-    }
-  }
-
-  return results;
-}
-
-// ─── Routes API ─────────────────────────────────────────────────────────────
-
-/**
- * GET /api/status
- * Vérifie que winget est disponible sur le système
- */
-app.get("/api/status", async (req, res) => {
-  try {
-    const output = await runPowerShell("winget --version", 5000);
-    const version = output.trim();
-    res.json({
-      ok: true,
-      wingetVersion: version,
-      platform: process.platform,
-      hostname: require("os").hostname(),
-      user: require("os").userInfo().username,
-    });
-  } catch (err) {
-    res.status(503).json({ ok: false, error: "winget non disponible", detail: err.message });
-  }
-});
-
-/**
- * GET /api/inventory
- * Lance `winget list` et retourne les applications parsées
- */
-app.get("/api/inventory", async (req, res) => {
-  try {
-    console.log("[winget] Exécution: winget list...");
-    const output = await runPowerShell("winget list --accept-source-agreements 2>&1", 90000);
-    const apps = parseWingetList(output);
-    console.log(`[winget] ${apps.length} applications trouvées`);
-    res.json({
-      apps,
-      total: apps.length,
-      upToDate: apps.filter((a) => a.status === "up-to-date").length,
-      updates: apps.filter((a) => a.status === "update-available").length,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    console.error("[winget] Erreur inventory:", err.message);
-    res.status(500).json({ error: "Erreur lors de l'inventaire", detail: err.message });
-  }
-});
-
-/**
- * GET /api/search?q=query
- * Lance `winget search <query>` et retourne les résultats
- */
-app.get("/api/search", async (req, res) => {
-  const query = req.query.q;
-  if (!query) return res.status(400).json({ error: "Paramètre q requis" });
-
-  try {
-    console.log(`[winget] Recherche: "${query}"`);
-    const output = await runPowerShell(
-      `winget search "${query}" --accept-source-agreements 2>&1`,
-      30000
-    );
-    const results = parseWingetSearch(output);
-    console.log(`[winget] ${results.length} résultats pour "${query}"`);
-    res.json({ results, query, total: results.length });
-  } catch (err) {
-    console.error("[winget] Erreur search:", err.message);
-    res.status(500).json({ error: "Erreur lors de la recherche", detail: err.message });
-  }
-});
-
-/**
- * GET /api/updates
- * Liste uniquement les apps avec mises à jour disponibles
- */
-app.get("/api/updates", async (req, res) => {
-  try {
-    console.log("[winget] Vérification des mises à jour...");
-    const output = await runPowerShell(
-      "winget upgrade --include-unknown --accept-source-agreements 2>&1",
-      90000
-    );
-    const apps = parseWingetList(output);
-    const updates = apps.filter((a) => a.status === "update-available");
-    res.json({ updates, total: updates.length, timestamp: new Date().toISOString() });
-  } catch (err) {
-    res.status(500).json({ error: "Erreur mises à jour", detail: err.message });
-  }
-});
-
-/**
- * POST /api/install
- * Body: { id: "Package.Id" }
- * Installe un package via winget (streaming SSE)
- */
-app.post("/api/install", (req, res) => {
-  const { id } = req.body;
-  if (!id) return res.status(400).json({ error: "Package ID requis" });
-
-  console.log(`[winget] Installation: ${id}`);
-
-  // Server-Sent Events pour le streaming en temps réel
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
-
-  const sendEvent = (type, data) => {
-    res.write(`data: ${JSON.stringify({ type, data, timestamp: new Date().toISOString() })}\n\n`);
-  };
-
-  sendEvent("start", `Installation de ${id}...`);
-  sendEvent("cmd", `winget install --id ${id} --silent --accept-package-agreements --accept-source-agreements`);
-
-  const child = spawn("powershell", [
-    "-NonInteractive", "-NoProfile", "-Command",
-    `winget install --id "${id}" --silent --accept-package-agreements --accept-source-agreements 2>&1`,
-  ]);
-
-  child.stdout.on("data", (data) => {
-    const text = data.toString().trim();
-    if (text) sendEvent("output", text);
   });
 
-  child.stderr.on("data", (data) => {
-    const text = data.toString().trim();
-    if (text) sendEvent("output", text);
-  });
+  // ─── Installation d'un package (SSE) ───────────────────────────────────────
 
-  child.on("close", (code) => {
-    if (code === 0) {
-      sendEvent("success", `✓ ${id} installé avec succès`);
-    } else {
-      sendEvent("error", `✗ Échec de l'installation (code: ${code})`);
-    }
-    res.end();
-  });
+  app.post("/api/install", (req, res) => {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: "ID requis" });
 
-  child.on("error", (err) => {
-    sendEvent("error", `✗ Erreur: ${err.message}`);
-    res.end();
-  });
+    const sendEvent = setupSSE(res);
+    let lastMessage = "";
+    let messageCount = 0;
+    let progress = 0;
+    const progressSteps = [
+      "Initialisation...",
+      "Vérification du package...",
+      "Téléchargement...",
+      "Vérification du hachage...",
+      "Installation...",
+      "Finalisation...",
+    ];
+    let currentStep = 0;
 
-  req.on("close", () => child.kill());
-});
+    sendEvent("start", `Installation de ${id} (Mode Admin)...`);
+    sendEvent("progress", JSON.stringify({ step: currentStep, message: progressSteps[currentStep], percent: 0 }));
 
-/**
- * POST /api/uninstall
- * Body: { id: "Package.Id" }
- */
-app.post("/api/uninstall", (req, res) => {
-  const { id } = req.body;
-  if (!id) return res.status(400).json({ error: "Package ID requis" });
+    const child = spawn("powershell", [
+      "-NoProfile", 
+      "-Command", 
+      `winget install --id "${id}" --silent --accept-package-agreements --accept-source-agreements`
+    ]);
 
-  console.log(`[winget] Désinstallation: ${id}`);
+    const processOutput = (data) => {
+      const text = data.toString().trim();
+      if (!text) return;
 
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
-
-  const sendEvent = (type, data) => {
-    res.write(`data: ${JSON.stringify({ type, data, timestamp: new Date().toISOString() })}\n\n`);
-  };
-
-  sendEvent("start", `Désinstallation de ${id}...`);
-  sendEvent("cmd", `winget uninstall --id ${id} --silent`);
-
-  const child = spawn("powershell", [
-    "-NonInteractive", "-NoProfile", "-Command",
-    `winget uninstall --id "${id}" --silent 2>&1`,
-  ]);
-
-  child.stdout.on("data", (data) => {
-    const text = data.toString().trim();
-    if (text) sendEvent("output", text);
-  });
-
-  child.stderr.on("data", (data) => {
-    const text = data.toString().trim();
-    if (text) sendEvent("output", text);
-  });
-
-  child.on("close", (code) => {
-    if (code === 0) {
-      sendEvent("success", `✓ ${id} désinstallé avec succès`);
-    } else {
-      sendEvent("error", `✗ Échec de la désinstallation (code: ${code})`);
-    }
-    res.end();
-  });
-
-  child.on("error", (err) => {
-    sendEvent("error", `✗ Erreur: ${err.message}`);
-    res.end();
-  });
-
-  req.on("close", () => child.kill());
-});
-
-/**
- * POST /api/upgrade
- * Body: { id: "Package.Id" } ou { all: true }
- */
-app.post("/api/upgrade", (req, res) => {
-  const { id, all } = req.body;
-
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
-
-  const sendEvent = (type, data) => {
-    res.write(`data: ${JSON.stringify({ type, data, timestamp: new Date().toISOString() })}\n\n`);
-  };
-
-  const psCmd = all
-    ? `winget upgrade --all --silent --accept-package-agreements --accept-source-agreements 2>&1`
-    : `winget upgrade --id "${id}" --silent --accept-package-agreements --accept-source-agreements 2>&1`;
-
-  console.log(`[winget] Upgrade: ${all ? "--all" : id}`);
-  sendEvent("start", all ? "Mise à jour de toutes les applications..." : `Mise à jour de ${id}...`);
-  sendEvent("cmd", psCmd.replace(" 2>&1", ""));
-
-  const child = spawn("powershell", ["-NonInteractive", "-NoProfile", "-Command", psCmd]);
-
-  child.stdout.on("data", (data) => {
-    const text = data.toString().trim();
-    if (text) sendEvent("output", text);
-  });
-
-  child.stderr.on("data", (data) => {
-    const text = data.toString().trim();
-    if (text) sendEvent("output", text);
-  });
-
-  child.on("close", (code) => {
-    if (code === 0) {
-      sendEvent("success", `✓ Mise à jour réussie`);
-    } else {
-      sendEvent("error", `✗ Échec mise à jour (code: ${code})`);
-    }
-    res.end();
-  });
-
-  child.on("error", (err) => {
-    sendEvent("error", `✗ Erreur: ${err.message}`);
-    res.end();
-  });
-
-  req.on("close", () => child.kill());
-});
-
-/**
- * GET /api/scan — Scan complet du système (SSE streaming)
- */
-app.get("/api/scan", (req, res) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
-
-  const sendEvent = (type, data) => {
-    res.write(`data: ${JSON.stringify({ type, data, timestamp: new Date().toISOString() })}\n\n`);
-  };
-
-  const steps = [
-    {
-      id: "init",
-      label: "Initialisation winget",
-      cmd: "winget --version",
-      parse: (out) => ({ version: out.trim() }),
-    },
-    {
-      id: "sources",
-      label: "Vérification des sources",
-      cmd: "winget source list",
-      parse: () => ({}),
-    },
-    {
-      id: "list",
-      label: "Inventaire des applications",
-      cmd: "winget list --accept-source-agreements 2>&1",
-      parse: (out) => {
-        const apps = parseWingetList(out);
-        return { count: apps.length };
-      },
-    },
-    {
-      id: "updates",
-      label: "Détection des mises à jour",
-      cmd: "winget upgrade --include-unknown --accept-source-agreements 2>&1",
-      parse: (out) => {
-        const apps = parseWingetList(out);
-        return { updates: apps.filter((a) => a.status === "update-available").length };
-      },
-    },
-  ];
-
-  let stepIndex = 0;
-
-  const runNextStep = () => {
-    if (stepIndex >= steps.length) {
-      sendEvent("complete", { message: "Scan terminé avec succès" });
-      return res.end();
-    }
-
-    const step = steps[stepIndex];
-    sendEvent("step-start", { id: step.id, label: step.label, index: stepIndex });
-
-    exec(`powershell -NonInteractive -NoProfile -Command "${step.cmd.replace(/"/g, '\\"')}"`,
-      { timeout: 120000, maxBuffer: 5 * 1024 * 1024 },
-      (err, stdout) => {
-        let parsed = {};
-        try {
-          parsed = step.parse(stdout || "");
-        } catch (_) {}
-        sendEvent("step-done", { id: step.id, label: step.label, index: stepIndex, data: parsed, warn: !!err });
-        stepIndex++;
-        runNextStep();
+      // Filtrer les messages répétitifs
+      if (text === lastMessage) {
+        messageCount++;
+        // Ne renvoyer que toutes les 10 répétitions
+        if (messageCount % 10 !== 0) return;
+      } else {
+        lastMessage = text;
+        messageCount = 0;
       }
-    );
-  };
 
-  runNextStep();
-  req.on("close", () => {});
-});
+      // Détecter les étapes de progression
+      const lowerText = text.toLowerCase();
+      if (lowerText.includes("hash") || lowerText.includes("hachage")) {
+        currentStep = 3;
+        progress = 50;
+        sendEvent("progress", JSON.stringify({ step: currentStep, message: progressSteps[currentStep], percent: progress }));
+      } else if (lowerText.includes("téléchargement") || lowerText.includes("download")) {
+        currentStep = 2;
+        progress = 30;
+        sendEvent("progress", JSON.stringify({ step: currentStep, message: progressSteps[currentStep], percent: progress }));
+      } else if (lowerText.includes("en attente") || lowerText.includes("waiting")) {
+        currentStep = 1;
+        progress = 15;
+        sendEvent("progress", JSON.stringify({ step: currentStep, message: "En attente d'une autre installation...", percent: progress }));
+      } else if (lowerText.includes("install") && !lowerText.includes("installé")) {
+        currentStep = 4;
+        progress = 70;
+        sendEvent("progress", JSON.stringify({ step: currentStep, message: progressSteps[currentStep], percent: progress }));
+      } else if (lowerText.includes("installé") || lowerText.includes("installed")) {
+        currentStep = 5;
+        progress = 100;
+        sendEvent("progress", JSON.stringify({ step: currentStep, message: progressSteps[currentStep], percent: progress }));
+      }
 
-// ─── Démarrage ───────────────────────────────────────────────────────────────
+      // Envoyer uniquement les messages importants
+      if (!lowerText.includes("en attente de la fin") || messageCount === 0) {
+        sendEvent("output", text);
+      }
+    };
 
-app.listen(PORT, () => {
-  console.log(`
-╔══════════════════════════════════════════════════════╗
-║       WinGet Admin Console — Serveur Local API       ║
-╠══════════════════════════════════════════════════════╣
-║  ✓ Serveur démarré sur http://localhost:${PORT}       ║
-║  ✓ Prêt à recevoir des commandes winget              ║
-╠══════════════════════════════════════════════════════╣
-║  Routes disponibles:                                 ║
-║   GET  /api/status      → Vérification winget        ║
-║   GET  /api/inventory   → Liste des apps installées  ║
-║   GET  /api/search?q=   → Recherche winget           ║
-║   GET  /api/updates     → Mises à jour disponibles   ║
-║   POST /api/install     → Installer un package       ║
-║   POST /api/uninstall   → Désinstaller un package    ║
-║   POST /api/upgrade     → Mettre à jour un package   ║
-║   GET  /api/scan        → Scan système complet       ║
-╚══════════════════════════════════════════════════════╝
-  `);
-});
+    child.stdout.on("data", processOutput);
+    child.stderr.on("data", processOutput);
+    
+    child.on("close", (code) => {
+      if (code === 0) {
+        sendEvent("progress", JSON.stringify({ step: 5, message: "Installation terminée", percent: 100 }));
+        sendEvent("success", `✓ ${id} installé avec succès`);
+      } else {
+        sendEvent("error", `✗ Échec de l'installation (code: ${code})`);
+      }
+      res.end();
+    });
+  });
 
-process.on("uncaughtException", (err) => {
-  console.error("[Server] Erreur non gérée:", err.message);
-});
+  // ─── Désinstallation d'un package (SSE) ────────────────────────────────────
+
+  app.post("/api/uninstall", (req, res) => {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: "ID requis" });
+
+    const sendEvent = setupSSE(res);
+
+    sendEvent("start", `Désinstallation de ${id} (Mode Admin)...`);
+
+    const child = spawn("powershell", [
+      "-NoProfile",
+      "-Command",
+      `winget uninstall --id "${id}" --silent`,
+    ]);
+
+    child.stdout.on("data", (data) => sendEvent("output", data.toString().trim()));
+    child.stderr.on("data", (data) => sendEvent("output", data.toString().trim()));
+
+    child.on("close", (code) => {
+      if (code === 0) sendEvent("success", `✓ ${id} désinstallé`);
+      else sendEvent("error", `✗ Échec (code: ${code})`);
+      res.end();
+    });
+  });
+
+  // ─── Mise à jour d'un package ou de tous (SSE) ────────────────────────────
+
+  app.post("/api/upgrade", (req, res) => {
+    const { id, all } = req.body || {};
+    if (!id && !all) return res.status(400).json({ error: "ID ou all requis" });
+
+    const sendEvent = setupSSE(res);
+
+    const label = all ? "Mise à jour de toutes les applications" : `Mise à jour de ${id}`;
+    sendEvent("start", `${label} (Mode Admin)...`);
+
+    const command = all
+      ? 'winget upgrade --all --silent --accept-package-agreements --accept-source-agreements'
+      : `winget upgrade --id "${id}" --silent --accept-package-agreements --accept-source-agreements`;
+
+    const child = spawn("powershell", ["-NoProfile", "-Command", command]);
+
+    child.stdout.on("data", (data) => sendEvent("output", data.toString().trim()));
+    child.stderr.on("data", (data) => sendEvent("output", data.toString().trim()));
+
+    child.on("close", (code) => {
+      if (code === 0) sendEvent("success", "✓ Mise à jour terminée");
+      else sendEvent("error", `✗ Échec de la mise à jour (code: ${code})`);
+      res.end();
+    });
+  });
+
+  // ─── Scan complet (SSE) : status + sources + inventaire + mises à jour ────
+
+  app.get("/api/scan", async (req, res) => {
+    const sendEvent = setupSSE(res);
+
+    const steps = [
+      {
+        id: "init",
+        command: "winget --version --accept-source-agreements",
+        handler: (out) => ({ version: out.trim() }),
+      },
+      {
+        id: "sources",
+        command: "winget source list",
+        handler: (out) => {
+          const lines = out.split(/\r?\n/).filter((l) => l.trim());
+          const count = Math.max(0, lines.length - 2); // en enlevant header + séparateur
+          return { sources: count };
+        },
+      },
+      {
+        id: "list",
+        command: "winget list --accept-source-agreements",
+        handler: (out) => {
+          const apps = parseWingetList(out);
+          return { count: apps.length };
+        },
+      },
+      {
+        id: "updates",
+        command: "winget upgrade --include-unknown --accept-source-agreements",
+        handler: (out) => {
+          const updates = parseWingetUpgrade(out);
+          return { updates: updates.length };
+        },
+      },
+    ];
+
+    try {
+      let inventoryData = null;
+      
+      for (let index = 0; index < steps.length; index++) {
+        const step = steps[index];
+        sendEvent("step-start", { index });
+        try {
+          const output = await runPowerShell(step.command, 120000);
+          const data = step.handler ? step.handler(output) : undefined;
+          
+          // Si c'est l'étape "list", récupérer l'inventaire complet
+          if (step.id === "list") {
+            try {
+              const [listOutput, upgradeOutput] = await Promise.all([
+                Promise.resolve(output),
+                runPowerShell("winget upgrade --include-unknown --accept-source-agreements", 120000).catch(() => "")
+              ]);
+              
+              const listApps = parseWingetList(listOutput);
+              const upgradeApps = upgradeOutput ? parseWingetUpgrade(upgradeOutput) : [];
+              const upgradesById = new Map();
+              for (const u of upgradeApps) {
+                upgradesById.set(u.id, u);
+              }
+
+              const apps = listApps.map((app) => {
+                const up = upgradesById.get(app.id);
+                const available = up?.availableVersion || null;
+                const status = available ? "update-available" : "up-to-date";
+                return {
+                  name: app.name,
+                  id: app.id,
+                  version: app.version,
+                  available,
+                  source: "winget",
+                  status,
+                };
+              });
+
+              inventoryData = {
+                apps,
+                total: apps.length,
+                upToDate: apps.filter((a) => a.status === "up-to-date").length,
+                updates: apps.filter((a) => a.status === "update-available").length,
+                timestamp: new Date().toISOString(),
+              };
+            } catch (invErr) {
+              console.warn("Erreur lors de la récupération de l'inventaire complet:", invErr);
+            }
+          }
+          
+          sendEvent("step-done", { index, data });
+        } catch (err) {
+          console.error(`Erreur step ${step.id} /api/scan:`, err);
+          sendEvent("step-done", { index, warn: true });
+          // Ne pas arrêter le scan, continuer avec les autres étapes
+        }
+      }
+
+      // Envoyer l'inventaire complet avec l'événement complete si disponible
+      sendEvent("complete", { ok: true, inventory: inventoryData });
+      res.end();
+    } catch (err) {
+      console.error("Erreur /api/scan:", err);
+      sendEvent("error", "Erreur inattendue lors du scan");
+      res.end();
+    }
+  });
+
+  app.listen(PORT, () => {
+    console.log(`
+🚀 SERVEUR ADMIN ACTIF
+----------------------
+URL : http://localhost:${PORT}
+SÉCURITÉ : Mode Privilégié Activé
+    `);
+  });
+}
+
+init();

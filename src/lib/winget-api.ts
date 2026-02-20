@@ -78,14 +78,30 @@ export async function searchPackages(query: string): Promise<SearchResult> {
 // ─── Mises à jour ──────────────────────────────────────────────────────────
 
 export async function fetchUpdates(): Promise<UpdatesResult> {
-  const res = await fetch(`${API_BASE}/updates`, { signal: AbortSignal.timeout(120000) });
-  if (!res.ok) throw new Error(`Erreur mises à jour: ${res.status}`);
-  return await res.json();
+  try {
+    const res = await fetch(`${API_BASE}/updates`, { signal: AbortSignal.timeout(120000) });
+    if (!res.ok) {
+      // Si le serveur retourne une erreur, retourner une liste vide plutôt que de lancer une erreur
+      console.warn(`Erreur HTTP ${res.status} lors de la récupération des mises à jour`);
+      return { updates: [], total: 0, timestamp: new Date().toISOString() };
+    }
+    const data = await res.json();
+    // S'assurer que la réponse contient bien un tableau d'updates
+    return {
+      updates: Array.isArray(data?.updates) ? data.updates : [],
+      total: data?.total || 0,
+      timestamp: data?.timestamp || new Date().toISOString(),
+    };
+  } catch (err) {
+    console.error("Erreur lors de la récupération des mises à jour:", err);
+    // En cas d'erreur réseau ou autre, retourner une liste vide
+    return { updates: [], total: 0, timestamp: new Date().toISOString() };
+  }
 }
 
 // ─── Commandes winget (SSE streaming) ─────────────────────────────────────
 
-export type SSEEventType = "start" | "cmd" | "output" | "success" | "error";
+export type SSEEventType = "start" | "cmd" | "output" | "success" | "error" | "progress";
 export type SSEHandler = (type: SSEEventType, data: string) => void;
 
 function streamSSE(url: string, options: RequestInit, onEvent: SSEHandler): () => void {

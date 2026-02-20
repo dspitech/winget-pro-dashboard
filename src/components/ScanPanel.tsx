@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Play, CheckCircle2, AlertTriangle, Loader2, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { startScan, ScanEventType } from "@/lib/winget-api";
+import { startScan, ScanEventType, fetchInventory } from "@/lib/winget-api";
 import { useServer } from "@/contexts/ServerContext";
+import { useScanData } from "@/hooks/use-scan-data";
 
 interface ScanStep {
   id: string;
@@ -24,6 +25,7 @@ const DEMO_DURATIONS = [900, 1400, 2800, 2200];
 
 export function ScanPanel() {
   const { isConnected } = useServer();
+  const { saveScanData, lastScanTime } = useScanData();
   const [steps, setSteps] = useState<ScanStep[]>(
     SCAN_STEPS_CONFIG.map(s => ({ ...s, status: "pending" }))
   );
@@ -31,12 +33,40 @@ export function ScanPanel() {
   const [scanComplete, setScanComplete] = useState(false);
   const [summaryData, setSummaryData] = useState<{ apps?: number; updates?: number } | null>(null);
 
+  // Restaurer l'état du scan depuis localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("winget-scan-steps");
+      const storedComplete = localStorage.getItem("winget-scan-complete");
+      const storedSummary = localStorage.getItem("winget-scan-summary");
+      
+      if (stored && storedComplete === "true") {
+        const savedSteps: ScanStep[] = JSON.parse(stored);
+        setSteps(savedSteps);
+        setScanComplete(true);
+        if (storedSummary) {
+          setSummaryData(JSON.parse(storedSummary));
+        }
+      }
+    } catch (err) {
+      console.error("Erreur lors de la restauration du scan:", err);
+    }
+  }, []);
+
   const handleScan = () => {
     if (scanning) return;
     setScanning(true);
     setScanComplete(false);
     setSummaryData(null);
     setSteps(SCAN_STEPS_CONFIG.map(s => ({ ...s, status: "pending" })));
+    // Effacer les données sauvegardées pour un nouveau scan
+    try {
+      localStorage.removeItem("winget-scan-steps");
+      localStorage.removeItem("winget-scan-complete");
+      localStorage.removeItem("winget-scan-summary");
+    } catch (err) {
+      console.error("Erreur lors de la suppression des données:", err);
+    }
 
     if (!isConnected) {
       // Mode démo — simulation locale
@@ -45,7 +75,16 @@ export function ScanPanel() {
         if (idx >= SCAN_STEPS_CONFIG.length) {
           setScanning(false);
           setScanComplete(true);
-          setSummaryData({ apps: 142, updates: 7 });
+          const demoSummary = { apps: 142, updates: 7 };
+          setSummaryData(demoSummary);
+          // Sauvegarder l'état du scan en mode démo
+          try {
+            localStorage.setItem("winget-scan-steps", JSON.stringify(steps));
+            localStorage.setItem("winget-scan-complete", "true");
+            localStorage.setItem("winget-scan-summary", JSON.stringify(demoSummary));
+          } catch (err) {
+            console.error("Erreur lors de la sauvegarde du scan:", err);
+          }
           return;
         }
         const i = idx;
@@ -63,23 +102,58 @@ export function ScanPanel() {
     }
 
     // Mode réel — SSE depuis le serveur
+    let currentSteps = SCAN_STEPS_CONFIG.map(s => ({ ...s, status: "pending" as const }));
+    let currentSummary: { apps?: number; updates?: number } | null = null;
+
     startScan((type: ScanEventType, data: unknown) => {
       if (type === "step-start") {
         const d = data as { index: number };
-        setSteps(prev => prev.map((s, j) => j === d.index ? { ...s, status: "running" } : s));
+        currentSteps = currentSteps.map((s, j) => j === d.index ? { ...s, status: "running" } : s);
+        setSteps(currentSteps);
       }
       if (type === "step-done") {
         const d = data as { index: number; warn?: boolean; data?: Record<string, unknown> };
-        setSteps(prev => prev.map((s, j) =>
+        currentSteps = currentSteps.map((s, j) =>
           j === d.index ? { ...s, status: d.warn ? "warn" : "done", data: d.data } : s
-        ));
+        );
+        setSteps(currentSteps);
         // Récupérer les résultats du scan
-        if (d.data?.count) setSummaryData(prev => ({ ...prev, apps: d.data!.count as number }));
-        if (d.data?.updates !== undefined) setSummaryData(prev => ({ ...prev, updates: d.data!.updates as number }));
+        if (d.data?.count) {
+          currentSummary = { ...currentSummary, apps: d.data.count as number };
+          setSummaryData(currentSummary);
+        }
+        if (d.data?.updates !== undefined) {
+          currentSummary = { ...currentSummary, updates: d.data.updates as number };
+          setSummaryData(currentSummary);
+        }
       }
       if (type === "complete") {
         setScanning(false);
         setScanComplete(true);
+        // Sauvegarder l'état du scan
+        try {
+          localStorage.setItem("winget-scan-steps", JSON.stringify(currentSteps));
+          localStorage.setItem("winget-scan-complete", "true");
+          if (currentSummary) {
+            localStorage.setItem("winget-scan-summary", JSON.stringify(currentSummary));
+          }
+        } catch (err) {
+          console.error("Erreur lors de la sauvegarde du scan:", err);
+        }
+        // Sauvegarder l'inventaire complet si fourni dans l'événement
+        const completeData = data as { ok?: boolean; inventory?: any };
+        if (completeData.inventory) {
+          saveScanData(completeData.inventory);
+        } else if (isConnected) {
+          // Sinon, récupérer l'inventaire séparément
+          fetchInventory()
+            .then(data => {
+              saveScanData(data);
+            })
+            .catch(err => {
+              console.error("Erreur lors de la récupération de l'inventaire:", err);
+            });
+        }
       }
       if (type === "error") {
         setScanning(false);
@@ -226,6 +300,11 @@ export function ScanPanel() {
                 {summaryData?.apps ? `${summaryData.apps} applications trouvées` : "Applications inventoriées"}
                 {summaryData?.updates !== undefined ? ` · ${summaryData.updates} mises à jour disponibles` : ""}
                 {!isConnected ? " (données simulées)" : " · Données réelles de votre PC"}
+                {lastScanTime && (
+                  <span className="block mt-1 text-muted-foreground/70">
+                    Scan effectué le {lastScanTime.toLocaleDateString("fr-FR")} à {lastScanTime.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
               </div>
             </div>
           </div>

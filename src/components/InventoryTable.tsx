@@ -3,6 +3,7 @@ import { Search, ChevronLeft, ChevronRight, ArrowUpDown, Filter, RefreshCw, Wifi
 import { cn } from "@/lib/utils";
 import { fetchInventory, AppEntry } from "@/lib/winget-api";
 import { useServer } from "@/contexts/ServerContext";
+import { useScanData } from "@/hooks/use-scan-data";
 
 // Mock data fallback
 const MOCK_APPS: AppEntry[] = [
@@ -35,7 +36,14 @@ interface InventoryTableProps {
 
 export function InventoryTable({ externalApps, compact = false }: InventoryTableProps) {
   const { isConnected } = useServer();
-  const [apps, setApps] = useState<AppEntry[]>(MOCK_APPS);
+  const { inventory: persistedInventory, saveScanData } = useScanData();
+  const [apps, setApps] = useState<AppEntry[]>(() => {
+    // Charger depuis les données persistées au démarrage
+    if (persistedInventory?.apps) {
+      return persistedInventory.apps;
+    }
+    return MOCK_APPS;
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -49,21 +57,34 @@ export function InventoryTable({ externalApps, compact = false }: InventoryTable
     try {
       const data = await fetchInventory();
       setApps(data.apps);
+      // Sauvegarder les données après chargement
+      saveScanData(data);
     } catch (err) {
       setError("Erreur lors du chargement de l'inventaire");
+      // En cas d'erreur, utiliser les données persistées si disponibles
+      if (persistedInventory?.apps) {
+        setApps(persistedInventory.apps);
+      }
     } finally {
       setLoading(false);
     }
-  }, [isConnected]);
+  }, [isConnected, saveScanData, persistedInventory]);
 
   useEffect(() => {
     if (externalApps) {
       setApps(externalApps);
       return;
     }
-    if (isConnected) loadInventory();
-    else setApps(MOCK_APPS);
-  }, [isConnected, externalApps]);
+    // Utiliser les données persistées si disponibles, sinon charger
+    if (persistedInventory?.apps && persistedInventory.apps.length > 0) {
+      setApps(persistedInventory.apps);
+    } else if (isConnected) {
+      // Ne charger automatiquement que si pas de données persistées
+      loadInventory();
+    } else {
+      setApps(MOCK_APPS);
+    }
+  }, [isConnected, externalApps, persistedInventory, loadInventory]);
 
   const source = externalApps || apps;
 

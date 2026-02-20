@@ -11,8 +11,11 @@ import {
   Settings,
   ChevronRight,
   Wifi,
+  WifiOff,
+  Loader2,
   Terminal,
 } from "lucide-react";
+import { useServer } from "@/contexts/ServerContext";
 
 export type PageId = "dashboard" | "inventory" | "discovery" | "install" | "uninstall" | "updates" | "scan" | "report";
 
@@ -26,11 +29,11 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, color: "neon-blue" },
-  { id: "inventory", label: "Inventaire", icon: Package, badge: 142, color: "neon-cyan" },
+  { id: "inventory", label: "Inventaire", icon: Package, color: "neon-cyan" },
   { id: "discovery", label: "Discovery Mode", icon: Search, color: "neon-cyan" },
   { id: "install", label: "Installation", icon: Download, color: "neon-green" },
   { id: "uninstall", label: "Désinstallation", icon: Trash2, color: "neon-red" },
-  { id: "updates", label: "Mises à jour", icon: RefreshCw, badge: 7, color: "neon-orange" },
+  { id: "updates", label: "Mises à jour", icon: RefreshCw, color: "neon-orange" },
   { id: "scan", label: "Scan Système", icon: Terminal, color: "neon-blue" },
   { id: "report", label: "Rapport HTML", icon: FileText, color: "neon-cyan" },
 ];
@@ -41,6 +44,8 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activePage, onNavigate }: SidebarProps) {
+  const { status, isConnected, isChecking, recheck } = useServer();
+
   return (
     <aside className="flex flex-col w-64 min-h-screen bg-sidebar border-r border-border">
       {/* Logo */}
@@ -56,12 +61,48 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
         </div>
       </div>
 
-      {/* Status indicator */}
-      <div className="mx-4 my-3 px-3 py-2 rounded-lg bg-neon-green/10 border border-neon-green/20 flex items-center gap-2">
-        <span className="w-2 h-2 rounded-full bg-neon-green pulse-dot" />
-        <span className="text-xs font-mono text-neon-green">winget connecté</span>
-        <Wifi className="w-3 h-3 text-neon-green ml-auto" />
-      </div>
+      {/* Server connection status */}
+      <button
+        onClick={recheck}
+        className={cn(
+          "mx-4 my-3 px-3 py-2 rounded-lg flex items-center gap-2 transition-all hover:opacity-80 text-left",
+          isChecking
+            ? "bg-neon-blue/10 border border-neon-blue/20"
+            : isConnected
+            ? "bg-neon-green/10 border border-neon-green/20"
+            : "bg-neon-red/10 border border-neon-red/20"
+        )}
+      >
+        {isChecking ? (
+          <Loader2 className="w-3 h-3 text-neon-blue animate-spin flex-shrink-0" />
+        ) : isConnected ? (
+          <Wifi className="w-3 h-3 text-neon-green flex-shrink-0" />
+        ) : (
+          <WifiOff className="w-3 h-3 text-neon-red flex-shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
+          <div className={cn(
+            "text-xs font-mono font-medium truncate",
+            isChecking ? "text-neon-blue" : isConnected ? "text-neon-green" : "text-neon-red"
+          )}>
+            {isChecking
+              ? "Connexion..."
+              : isConnected
+              ? `PC connecté · ${status?.hostname || "local"}`
+              : "Mode démo (serveur off)"}
+          </div>
+          {isConnected && status?.wingetVersion && (
+            <div className="text-[10px] text-muted-foreground font-mono truncate">
+              winget {status.wingetVersion} · {status.user}
+            </div>
+          )}
+          {!isConnected && !isChecking && (
+            <div className="text-[10px] text-muted-foreground font-mono">
+              Cliquer pour réessayer
+            </div>
+          )}
+        </div>
+      </button>
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto">
@@ -88,10 +129,7 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
                   : "text-muted-foreground hover:text-foreground hover:bg-surface-2"
               )}
             >
-              <Icon className={cn(
-                "w-4 h-4 flex-shrink-0 transition-colors",
-                isActive ? "" : "group-hover:text-foreground"
-              )} />
+              <Icon className={cn("w-4 h-4 flex-shrink-0 transition-colors", isActive ? "" : "group-hover:text-foreground")} />
               <span className="flex-1 text-left">{item.label}</span>
               {item.badge && (
                 <span className={cn(

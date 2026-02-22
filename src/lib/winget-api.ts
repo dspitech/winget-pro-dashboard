@@ -177,6 +177,22 @@ export function upgradeAll(onEvent: SSEHandler): () => void {
   );
 }
 
+// ─── Infos Système ──────────────────────────────────────────────────────────
+
+export async function fetchSystemInfo(): Promise<Record<string, unknown>> {
+  const res = await fetch(`${API_BASE}/system-info`, { signal: AbortSignal.timeout(30000) });
+  if (!res.ok) throw new Error(`Erreur serveur: ${res.status}`);
+  return await res.json();
+}
+
+// ─── Infos Réseau ───────────────────────────────────────────────────────────
+
+export async function fetchNetworkInfo(): Promise<Record<string, unknown>> {
+  const res = await fetch(`${API_BASE}/network-info`, { signal: AbortSignal.timeout(30000) });
+  if (!res.ok) throw new Error(`Erreur serveur: ${res.status}`);
+  return await res.json();
+}
+
 // ─── Scan SSE ───────────────────────────────────────────────────────────────
 
 export type ScanEventType = "step-start" | "step-done" | "complete" | "error";

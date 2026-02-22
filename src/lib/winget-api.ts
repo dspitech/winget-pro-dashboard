@@ -22,6 +22,7 @@ export interface SystemStatus {
   platform?: string;
   hostname?: string;
   user?: string;
+  isAdmin?: boolean;
   error?: string;
 }
 

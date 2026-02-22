@@ -102,7 +102,7 @@ export function ScanPanel() {
     }
 
     // Mode réel — SSE depuis le serveur
-    let currentSteps = SCAN_STEPS_CONFIG.map(s => ({ ...s, status: "pending" as const }));
+    let currentSteps: ScanStep[] = SCAN_STEPS_CONFIG.map(s => ({ ...s, status: "pending" as const }));
     let currentSummary: { apps?: number; updates?: number } | null = null;
 
     startScan((type: ScanEventType, data: unknown) => {

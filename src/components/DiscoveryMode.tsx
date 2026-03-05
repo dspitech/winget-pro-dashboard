@@ -23,25 +23,6 @@ const CATEGORIES = [
   { label: "Media", query: "vlc", icon: "🎬" },
 ];
 
-const MOCK_RESULTS: Record<string, SearchResult[]> = {
-  browser: [
-    { name: "Google Chrome", id: "Google.Chrome", version: "132.0.6834.84", source: "winget" },
-    { name: "Mozilla Firefox", id: "Mozilla.Firefox", version: "134.0", source: "winget" },
-    { name: "Microsoft Edge", id: "Microsoft.Edge", version: "132.0.2957.55", source: "winget" },
-  ],
-  vscode: [
-    { name: "Microsoft Visual Studio Code", id: "Microsoft.VisualStudioCode", version: "1.96.2", source: "winget" },
-    { name: "VSCodium", id: "VSCodium.VSCodium", version: "1.96.2", source: "winget" },
-  ],
-  git: [
-    { name: "Git", id: "Git.Git", version: "2.48.0", source: "winget" },
-    { name: "GitHub Desktop", id: "GitHub.GitHubDesktop", version: "3.4.15", source: "winget" },
-  ],
-  python: [
-    { name: "Python 3.13", id: "Python.Python.3.13", version: "3.13.1", source: "winget" },
-    { name: "Python 3.12", id: "Python.Python.3.12", version: "3.12.8", source: "winget" },
-  ],
-};
 
 type InstallStatus = "idle" | "installing" | "success" | "error";
 

@@ -7,7 +7,7 @@ import {
   Cpu, MemoryStick, Server, Layers, BarChart3, PieChart as PieChartIcon
 } from "lucide-react";
 import { useServer } from "@/contexts/ServerContext";
-import { fetchInventory, fetchUpdates, AppEntry } from "@/lib/winget-api";
+import { fetchInventory, fetchUpdates, fetchNetworkInfo, AppEntry, NetworkInfo } from "@/lib/winget-api";
 import { useScanData } from "@/hooks/use-scan-data";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, AreaChart, Area, RadialBarChart, RadialBar } from "recharts";
@@ -28,6 +28,7 @@ export function DashboardPage() {
   const [updates, setUpdates] = useState<AppEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastScan, setLastScan] = useState<Date | null>(lastScanTime);
+  const [networkData, setNetworkData] = useState<NetworkInfo | null>(null);
 
   useEffect(() => {
     if (persistedInventory?.apps && persistedInventory.apps.length > 0) {
@@ -45,10 +46,12 @@ export function DashboardPage() {
     if (!isConnected) return;
     setLoading(true);
     try {
-      const [invData, updData] = await Promise.all([
+      const [invData, updData, netData] = await Promise.all([
         fetchInventory().catch(() => ({ apps: [], total: 0, upToDate: 0, updates: 0, timestamp: new Date().toISOString() })),
         fetchUpdates().catch(() => ({ updates: [], total: 0, timestamp: new Date().toISOString() })),
+        fetchNetworkInfo().catch(() => null),
       ]);
+      setNetworkData(netData);
       setInventory(invData.apps || []);
       setUpdates(updData.updates || []);
       const scanTime = new Date();
@@ -198,12 +201,12 @@ export function DashboardPage() {
           </h3>
           <div className="space-y-3">
             {[
-              { label: "Adresse IP locale", value: "192.168.1.x", icon: Globe, color: "text-neon-cyan" },
-              { label: "Passerelle", value: "192.168.1.1", icon: Network, color: "text-neon-blue" },
-              { label: "DNS primaire", value: "8.8.8.8", icon: Globe, color: "text-neon-green" },
-              { label: "DNS secondaire", value: "8.8.4.4", icon: Globe, color: "text-neon-green" },
-              { label: "Masque réseau", value: "255.255.255.0", icon: Network, color: "text-neon-orange" },
-              { label: "Interface active", value: isConnected ? "Ethernet / Wi-Fi" : "N/A", icon: Wifi, color: "text-neon-cyan" },
+              { label: "Adresse IP locale", value: networkData?.ip || "—", icon: Globe, color: "text-neon-cyan" },
+              { label: "IP publique", value: networkData?.publicIP || "—", icon: Globe, color: "text-neon-green" },
+              { label: "Passerelle", value: networkData?.gateway || "—", icon: Network, color: "text-neon-blue" },
+              { label: "DNS primaire", value: networkData?.dns?.[0] || "—", icon: Globe, color: "text-neon-green" },
+              { label: "DNS secondaire", value: networkData?.dns?.[1] || "—", icon: Globe, color: "text-neon-green" },
+              { label: "Interface active", value: networkData?.adapters?.[0]?.name || "—", icon: Wifi, color: "text-neon-cyan" },
             ].map(item => (
               <div key={item.label} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-1/30 border border-border/50">
                 <div className="flex items-center gap-2">

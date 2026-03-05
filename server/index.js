@@ -614,6 +614,105 @@ async function init() {
     }
   });
 
+  // ─── Informations réseau ──────────────────────────────────────────────────
+
+  app.get("/api/network", async (req, res) => {
+    try {
+      const script = `
+        $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Select-Object Name, InterfaceDescription, MacAddress, LinkSpeed, Status
+        $ipConfig = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null } | Select-Object -First 1
+        $ip = $ipConfig.IPv4Address.IPAddress
+        $gateway = $ipConfig.IPv4DefaultGateway.NextHop
+        $dns = ($ipConfig.DNSServer | Where-Object { $_.AddressFamily -eq 2 }).ServerAddresses
+        $subnet = (Get-NetIPAddress -InterfaceIndex $ipConfig.InterfaceIndex -AddressFamily IPv4).PrefixLength
+        $firewall = (Get-NetFirewallProfile -Profile Domain,Public,Private | Select-Object Name, Enabled)
+        $profile = (Get-NetConnectionProfile | Select-Object -First 1).NetworkCategory
+        $publicIP = try { (Invoke-RestMethod -Uri 'https://api.ipify.org?format=json' -TimeoutSec 3).ip } catch { 'N/A' }
+        
+        @{
+          adapters = $adapters | ForEach-Object { @{ name = $_.Name; description = $_.InterfaceDescription; mac = $_.MacAddress; speed = $_.LinkSpeed; status = $_.Status } }
+          ip = $ip
+          gateway = $gateway
+          dns = $dns
+          subnetPrefix = $subnet
+          firewallProfiles = $firewall | ForEach-Object { @{ name = $_.Name; enabled = $_.Enabled } }
+          networkProfile = $profile
+          publicIP = $publicIP
+        } | ConvertTo-Json -Depth 3
+      `;
+      const output = await runPowerShell(script, 15000);
+      const data = JSON.parse(output.trim());
+      res.json({ ok: true, ...data });
+    } catch (err) {
+      console.error("Erreur /api/network:", err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // ─── Informations système détaillées ────────────────────────────────────────
+
+  app.get("/api/system", async (req, res) => {
+    try {
+      const script = `
+        $os = Get-CimInstance Win32_OperatingSystem
+        $cpu = Get-CimInstance Win32_Processor
+        $mem = Get-CimInstance Win32_PhysicalMemory
+        $disk = Get-CimInstance Win32_DiskDrive | Select-Object -First 1
+        $logicalDisk = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DeviceID -eq 'C:' }
+        $bios = Get-CimInstance Win32_BIOS
+        $cs = Get-CimInstance Win32_ComputerSystem
+        
+        @{
+          os = @{
+            name = $os.Caption
+            version = $os.Version
+            build = $os.BuildNumber
+            arch = $os.OSArchitecture
+            installDate = $os.InstallDate.ToString('yyyy-MM-dd')
+            lastBoot = $os.LastBootUpTime.ToString('yyyy-MM-dd HH:mm:ss')
+          }
+          cpu = @{
+            name = $cpu.Name
+            cores = $cpu.NumberOfCores
+            threads = $cpu.NumberOfLogicalProcessors
+            maxClock = [math]::Round($cpu.MaxClockSpeed / 1000, 2)
+            cache = [math]::Round($cpu.L3CacheSize / 1024, 0)
+            usage = (Get-CimInstance Win32_Processor).LoadPercentage
+          }
+          memory = @{
+            totalGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
+            freeGB = [math]::Round($os.FreePhysicalMemory / 1MB, 1)
+            usedPercent = [math]::Round((($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / $os.TotalVisibleMemorySize) * 100, 0)
+            speed = ($mem | Select-Object -First 1).Speed
+            slots = $mem.Count
+            type = if (($mem | Select-Object -First 1).SMBIOSMemoryType -eq 34) { 'DDR5' } elseif (($mem | Select-Object -First 1).SMBIOSMemoryType -eq 26) { 'DDR4' } else { 'DDR' }
+          }
+          storage = @{
+            model = $disk.Model
+            sizeGB = [math]::Round($disk.Size / 1GB, 0)
+            freeGB = [math]::Round($logicalDisk.FreeSpace / 1GB, 0)
+            totalGB = [math]::Round($logicalDisk.Size / 1GB, 0)
+            freePercent = [math]::Round(($logicalDisk.FreeSpace / $logicalDisk.Size) * 100, 0)
+            fileSystem = $logicalDisk.FileSystem
+            mediaType = $disk.MediaType
+          }
+          machine = @{
+            manufacturer = $cs.Manufacturer
+            model = $cs.Model
+            domain = $cs.Domain
+            bios = $bios.SMBIOSBIOSVersion
+          }
+        } | ConvertTo-Json -Depth 3
+      `;
+      const output = await runPowerShell(script, 20000);
+      const data = JSON.parse(output.trim());
+      res.json({ ok: true, ...data });
+    } catch (err) {
+      console.error("Erreur /api/system:", err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   app.listen(PORT, () => {
     console.log(`
 🚀 SERVEUR ADMIN ACTIF

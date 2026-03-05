@@ -153,15 +153,6 @@ const POPULAR_APPS: App[] = [
   { id: "Kdenlive.Kdenlive", name: "Kdenlive", category: "Audio & Vidéo", description: "Éditeur vidéo non-linéaire" },
 ];
 
-const MOCK_UPDATES = [
-  { id: "Git.Git", name: "Git", version: "2.47.1", available: "2.48.0" },
-  { id: "OpenJS.NodeJS.LTS", name: "Node.js LTS", version: "20.18.1", available: "22.13.0" },
-  { id: "Microsoft.PowerShell", name: "PowerShell 7", version: "7.4.7.0", available: "7.5.0" },
-  { id: "Docker.DockerDesktop", name: "Docker Desktop", version: "4.37.1", available: "4.38.0" },
-  { id: "Postman.Postman", name: "Postman", version: "11.28.4", available: "11.29.0" },
-  { id: "WinSCP.WinSCP", name: "WinSCP", version: "6.3.6", available: "6.4.0" },
-  { id: "Zoom.Zoom", name: "Zoom", version: "6.3.11", available: "6.4.0" },
-];
 
 interface UpdateApp {
   id: string;
@@ -228,7 +219,7 @@ export function ProvisioningPanel({ mode }: { mode: Mode }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [status, setStatus] = useState<"idle" | "running" | "paused" | "success" | "error">("idle");
   const [selectedUpdates, setSelectedUpdates] = useState<Set<string>>(new Set());
-  const [updates, setUpdates] = useState<UpdateApp[]>(MOCK_UPDATES);
+  const [updates, setUpdates] = useState<UpdateApp[]>([]);
   const [loadingUpdates, setLoadingUpdates] = useState(false);
   const [updateStatuses, setUpdateStatuses] = useState<Record<string, "idle" | "running" | "success" | "error">>({});
   const [installStatuses, setInstallStatuses] = useState<Record<string, InstallationStatus>>({});

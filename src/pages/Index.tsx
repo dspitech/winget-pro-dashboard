@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Sidebar, PageId } from "@/components/Sidebar";
 import { DashboardPage } from "@/components/DashboardPage";
 import { InventoryTable } from "@/components/InventoryTable";
@@ -10,8 +10,9 @@ import { NetworkPage } from "@/components/NetworkPage";
 import { SystemInfoPage } from "@/components/SystemInfoPage";
 import { LogsPage } from "@/components/LogsPage";
 import { SettingsPage } from "@/components/SettingsPage";
-import { Menu, X } from "lucide-react";
+import { Menu, X, MapPin, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useServer } from "@/contexts/ServerContext";
 
 const pageTitle: Record<PageId, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Vue d'ensemble du parc applicatif" },
@@ -28,12 +29,46 @@ const pageTitle: Record<PageId, { title: string; subtitle: string }> = {
   settings: { title: "Paramètres", subtitle: "Configuration de l'application" },
 };
 
+interface GeoInfo {
+  city: string;
+  country: string;
+  timezone: string;
+}
+
 const Index = () => {
   const [activePage, setActivePage] = useState<PageId>("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [geoInfo, setGeoInfo] = useState<GeoInfo | null>(null);
+  const { status, isConnected } = useServer();
+
+  // Horloge en temps réel
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Géolocalisation via API publique
+  useEffect(() => {
+    fetch("https://ipapi.co/json/", { signal: AbortSignal.timeout(5000) })
+      .then(r => r.json())
+      .then(data => {
+        if (data.city) {
+          setGeoInfo({ city: data.city, country: data.country_name, timezone: data.timezone });
+        }
+      })
+      .catch(() => {
+        // Fallback: utiliser le timezone du navigateur
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        setGeoInfo({ city: "—", country: "—", timezone: tz });
+      });
+  }, []);
 
   const page = pageTitle[activePage];
   const handleNavigate = (p: PageId) => { setActivePage(p); setMobileOpen(false); };
+
+  const timeStr = currentTime.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const dateStr = currentTime.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -52,11 +87,35 @@ const Index = () => {
             <h1 className="text-base font-bold text-foreground truncate">{page.title}</h1>
             <p className="text-xs text-muted-foreground font-mono truncate">{page.subtitle}</p>
           </div>
-          <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-muted-foreground">
-            <div className="w-1.5 h-1.5 rounded-full bg-neon-green pulse-dot" />
-            <span>winget v1.9.25200</span>
+          <div className="hidden sm:flex items-center gap-3 text-xs font-mono text-muted-foreground">
+            {/* Statut serveur */}
+            <div className="flex items-center gap-1.5">
+              <div className={cn("w-1.5 h-1.5 rounded-full pulse-dot", isConnected ? "bg-neon-green" : "bg-neon-red")} />
+              <span>{isConnected ? `winget ${status?.wingetVersion || ""}` : "Mode démo"}</span>
+            </div>
+            {isConnected && status?.hostname && (
+              <>
+                <span className="text-border">·</span>
+                <span className="text-foreground/60">{status.hostname}</span>
+              </>
+            )}
+            {/* Localisation */}
+            {geoInfo && geoInfo.city !== "—" && (
+              <>
+                <span className="text-border">·</span>
+                <div className="flex items-center gap-1">
+                  <MapPin className="w-3 h-3 text-neon-cyan" />
+                  <span className="text-neon-cyan">{geoInfo.city}, {geoInfo.country}</span>
+                </div>
+              </>
+            )}
+            {/* Horloge */}
             <span className="text-border">·</span>
-            <span className="text-foreground/60">PowerShell 7.5</span>
+            <div className="flex items-center gap-1">
+              <Clock className="w-3 h-3 text-neon-green" />
+              <span className="text-neon-green">{timeStr}</span>
+            </div>
+            <span className="text-foreground/40 hidden lg:inline">{dateStr}</span>
           </div>
         </header>
 

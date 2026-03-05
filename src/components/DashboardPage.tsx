@@ -28,6 +28,7 @@ export function DashboardPage() {
   const [updates, setUpdates] = useState<AppEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastScan, setLastScan] = useState<Date | null>(lastScanTime);
+  const [networkData, setNetworkData] = useState<NetworkInfo | null>(null);
 
   useEffect(() => {
     if (persistedInventory?.apps && persistedInventory.apps.length > 0) {

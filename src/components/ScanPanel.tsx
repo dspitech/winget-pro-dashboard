@@ -73,10 +73,7 @@ export function ScanPanel() {
       let idx = 0;
       const runNext = () => {
         if (idx >= SCAN_STEPS_CONFIG.length) {
-          setScanning(false);
-          setScanComplete(true);
-          const demoSummary = { apps: 142, updates: 7 };
-          setSummaryData(demoSummary);
+          const demoSummary = { apps: 0, updates: 0 };
           // Sauvegarder l'état du scan en mode démo
           try {
             localStorage.setItem("winget-scan-steps", JSON.stringify(steps));

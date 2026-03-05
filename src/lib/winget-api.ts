@@ -177,6 +177,53 @@ export function upgradeAll(onEvent: SSEHandler): () => void {
   );
 }
 
+// ─── Informations réseau ────────────────────────────────────────────────────
+
+export interface NetworkInfo {
+  ok: boolean;
+  adapters?: Array<{ name: string; description: string; mac: string; speed: string; status: string }>;
+  ip?: string;
+  gateway?: string;
+  dns?: string[];
+  subnetPrefix?: number;
+  firewallProfiles?: Array<{ name: string; enabled: boolean }>;
+  networkProfile?: string;
+  publicIP?: string;
+  error?: string;
+}
+
+export async function fetchNetworkInfo(): Promise<NetworkInfo> {
+  try {
+    const res = await fetch(`${API_BASE}/network`, { signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch {
+    return { ok: false, error: "Impossible de récupérer les infos réseau" };
+  }
+}
+
+// ─── Informations système ───────────────────────────────────────────────────
+
+export interface SystemInfo {
+  ok: boolean;
+  os?: { name: string; version: string; build: string; arch: string; installDate: string; lastBoot: string };
+  cpu?: { name: string; cores: number; threads: number; maxClock: number; cache: number; usage: number };
+  memory?: { totalGB: number; freeGB: number; usedPercent: number; speed: number; slots: number; type: string };
+  storage?: { model: string; sizeGB: number; freeGB: number; totalGB: number; freePercent: number; fileSystem: string; mediaType: string };
+  machine?: { manufacturer: string; model: string; domain: string; bios: string };
+  error?: string;
+}
+
+export async function fetchSystemInfo(): Promise<SystemInfo> {
+  try {
+    const res = await fetch(`${API_BASE}/system`, { signal: AbortSignal.timeout(25000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch {
+    return { ok: false, error: "Impossible de récupérer les infos système" };
+  }
+}
+
 // ─── Scan SSE ───────────────────────────────────────────────────────────────
 
 export type ScanEventType = "step-start" | "step-done" | "complete" | "error";

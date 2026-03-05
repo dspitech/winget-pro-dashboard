@@ -5,9 +5,6 @@ import { fetchInventory, AppEntry } from "@/lib/winget-api";
 import { useServer } from "@/contexts/ServerContext";
 import { useScanData } from "@/hooks/use-scan-data";
 
-
-const PAGE_SIZE = 10;
-
 const PAGE_SIZE = 10;
 
 interface InventoryTableProps {

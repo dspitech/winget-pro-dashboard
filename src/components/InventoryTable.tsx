@@ -59,10 +59,9 @@ export function InventoryTable({ externalApps, compact = false }: InventoryTable
     if (persistedInventory?.apps && persistedInventory.apps.length > 0) {
       setApps(persistedInventory.apps);
     } else if (isConnected) {
-      // Ne charger automatiquement que si pas de données persistées
       loadInventory();
     } else {
-      setApps(MOCK_APPS);
+      setApps([]);
     }
   }, [isConnected, externalApps, persistedInventory, loadInventory]);
 

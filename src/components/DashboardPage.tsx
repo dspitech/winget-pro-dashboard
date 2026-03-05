@@ -7,7 +7,7 @@ import {
   Cpu, MemoryStick, Server, Layers, BarChart3, PieChart as PieChartIcon
 } from "lucide-react";
 import { useServer } from "@/contexts/ServerContext";
-import { fetchInventory, fetchUpdates, AppEntry } from "@/lib/winget-api";
+import { fetchInventory, fetchUpdates, fetchNetworkInfo, AppEntry, NetworkInfo } from "@/lib/winget-api";
 import { useScanData } from "@/hooks/use-scan-data";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, AreaChart, Area, RadialBarChart, RadialBar } from "recharts";

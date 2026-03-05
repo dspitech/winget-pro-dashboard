@@ -5,27 +5,8 @@ import { fetchInventory, AppEntry } from "@/lib/winget-api";
 import { useServer } from "@/contexts/ServerContext";
 import { useScanData } from "@/hooks/use-scan-data";
 
-// Mock data fallback
-const MOCK_APPS: AppEntry[] = [
-  { name: "7-Zip 24.09 (x64)", id: "7zip.7zip", version: "24.09.00.0", available: null, source: "winget", installDate: "2024-11-15", status: "up-to-date" },
-  { name: "Git", id: "Git.Git", version: "2.47.1", available: "2.48.0", source: "winget", installDate: "2024-09-01", status: "update-available" },
-  { name: "Microsoft Visual Studio Code", id: "Microsoft.VisualStudioCode", version: "1.96.2", available: null, source: "winget", installDate: "2024-08-20", status: "up-to-date" },
-  { name: "Node.js", id: "OpenJS.NodeJS.LTS", version: "20.18.1", available: "22.13.0", source: "winget", installDate: "2024-07-10", status: "update-available" },
-  { name: "Google Chrome", id: "Google.Chrome", version: "132.0.6834.84", available: null, source: "winget", installDate: "2024-06-15", status: "up-to-date" },
-  { name: "PowerShell 7-x64", id: "Microsoft.PowerShell", version: "7.4.7.0", available: "7.5.0", source: "winget", installDate: "2024-05-01", status: "update-available" },
-  { name: "Python 3.13.1 (64-bit)", id: "Python.Python.3.13", version: "3.13.1", available: null, source: "winget", installDate: "2024-12-01", status: "up-to-date" },
-  { name: "Windows Terminal", id: "Microsoft.WindowsTerminal", version: "1.21.3231.0", available: null, source: "winget", installDate: "2024-04-10", status: "up-to-date" },
-  { name: "Docker Desktop", id: "Docker.DockerDesktop", version: "4.37.1", available: "4.38.0", source: "winget", installDate: "2024-03-22", status: "update-available" },
-  { name: "Mozilla Firefox", id: "Mozilla.Firefox", version: "134.0", available: null, source: "winget", installDate: "2024-02-18", status: "up-to-date" },
-  { name: "Slack", id: "SlackTechnologies.Slack", version: "4.43.47", available: null, source: "winget", installDate: "2024-01-30", status: "up-to-date" },
-  { name: "Postman", id: "Postman.Postman", version: "11.28.4", available: "11.29.0", source: "winget", installDate: "2024-01-15", status: "update-available" },
-  { name: "VLC media player", id: "VideoLAN.VLC", version: "3.0.21.0", available: null, source: "winget", installDate: "2023-12-10", status: "up-to-date" },
-  { name: "Notepad++", id: "Notepad++.Notepad++", version: "8.7.3", available: null, source: "winget", installDate: "2023-11-05", status: "up-to-date" },
-  { name: "WinSCP 6.3.6", id: "WinSCP.WinSCP", version: "6.3.6", available: "6.4.0", source: "winget", installDate: "2023-10-01", status: "update-available" },
-  { name: "Microsoft .NET SDK 9.0", id: "Microsoft.DotNet.SDK.9", version: "9.0.101", available: null, source: "winget", installDate: "2024-12-15", status: "up-to-date" },
-  { name: "GitHub Desktop", id: "GitHub.GitHubDesktop", version: "3.4.15", available: null, source: "winget", installDate: "2024-08-05", status: "up-to-date" },
-  { name: "Zoom", id: "Zoom.Zoom", version: "6.3.11.56483", available: "6.4.0", source: "winget", installDate: "2024-06-01", status: "update-available" },
-];
+
+const PAGE_SIZE = 10;
 
 const PAGE_SIZE = 10;
 

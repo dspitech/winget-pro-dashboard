@@ -59,7 +59,8 @@ export function SettingsPage() {
             { label: "Version", value: "v2.6.0" },
             { label: "Auteur", value: "LO Pape / dspitech" },
             { label: "Licence", value: "MIT" },
-            { label: "GitHub", value: "github.com/dspitech/Winget-inventory-report" },
+            { label: "Plateforme", value: navigator.platform || "—" },
+            { label: "User Agent", value: navigator.userAgent.split(" ").slice(-2).join(" ") },
           ].map(item => (
             <div key={item.label} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-1/30 border border-border/50">
               <span className="text-xs text-muted-foreground font-mono">{item.label}</span>

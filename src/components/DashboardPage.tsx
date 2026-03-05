@@ -201,12 +201,12 @@ export function DashboardPage() {
           </h3>
           <div className="space-y-3">
             {[
-              { label: "Adresse IP locale", value: "192.168.1.x", icon: Globe, color: "text-neon-cyan" },
-              { label: "Passerelle", value: "192.168.1.1", icon: Network, color: "text-neon-blue" },
-              { label: "DNS primaire", value: "8.8.8.8", icon: Globe, color: "text-neon-green" },
-              { label: "DNS secondaire", value: "8.8.4.4", icon: Globe, color: "text-neon-green" },
-              { label: "Masque réseau", value: "255.255.255.0", icon: Network, color: "text-neon-orange" },
-              { label: "Interface active", value: isConnected ? "Ethernet / Wi-Fi" : "N/A", icon: Wifi, color: "text-neon-cyan" },
+              { label: "Adresse IP locale", value: networkData?.ip || "—", icon: Globe, color: "text-neon-cyan" },
+              { label: "IP publique", value: networkData?.publicIP || "—", icon: Globe, color: "text-neon-green" },
+              { label: "Passerelle", value: networkData?.gateway || "—", icon: Network, color: "text-neon-blue" },
+              { label: "DNS primaire", value: networkData?.dns?.[0] || "—", icon: Globe, color: "text-neon-green" },
+              { label: "DNS secondaire", value: networkData?.dns?.[1] || "—", icon: Globe, color: "text-neon-green" },
+              { label: "Interface active", value: networkData?.adapters?.[0]?.name || "—", icon: Wifi, color: "text-neon-cyan" },
             ].map(item => (
               <div key={item.label} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-1/30 border border-border/50">
                 <div className="flex items-center gap-2">

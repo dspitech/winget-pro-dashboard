@@ -46,10 +46,12 @@ export function DashboardPage() {
     if (!isConnected) return;
     setLoading(true);
     try {
-      const [invData, updData] = await Promise.all([
+      const [invData, updData, netData] = await Promise.all([
         fetchInventory().catch(() => ({ apps: [], total: 0, upToDate: 0, updates: 0, timestamp: new Date().toISOString() })),
         fetchUpdates().catch(() => ({ updates: [], total: 0, timestamp: new Date().toISOString() })),
+        fetchNetworkInfo().catch(() => null),
       ]);
+      setNetworkData(netData);
       setInventory(invData.apps || []);
       setUpdates(updData.updates || []);
       const scanTime = new Date();

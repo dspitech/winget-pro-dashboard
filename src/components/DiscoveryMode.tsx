@@ -47,14 +47,10 @@ export function DiscoveryMode() {
         const data = await searchPackages(q);
         setResults(data.results);
       } catch {
-        // fallback mock
-        const key = Object.keys(MOCK_RESULTS).find(k => q.toLowerCase().includes(k));
-        setResults(key ? MOCK_RESULTS[key] : [{ name: `${q}`, id: `Publisher.${q}`, version: "N/A", source: "winget" }]);
+        setResults([]);
       }
     } else {
-      await new Promise(r => setTimeout(r, 600));
-      const key = Object.keys(MOCK_RESULTS).find(k => q.toLowerCase().includes(k));
-      setResults(key ? MOCK_RESULTS[key] : [{ name: q, id: `Publisher.${q}`, version: "1.0.0", source: "winget" }]);
+      setResults([]);
     }
 
     setSearched(true);

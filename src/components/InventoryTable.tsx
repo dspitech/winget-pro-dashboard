@@ -248,5 +248,3 @@ export function InventoryTable({ externalApps, compact = false }: InventoryTable
     </div>
   );
 }
-
-export { MOCK_APPS };

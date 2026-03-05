@@ -219,7 +219,7 @@ export function ProvisioningPanel({ mode }: { mode: Mode }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [status, setStatus] = useState<"idle" | "running" | "paused" | "success" | "error">("idle");
   const [selectedUpdates, setSelectedUpdates] = useState<Set<string>>(new Set());
-  const [updates, setUpdates] = useState<UpdateApp[]>(MOCK_UPDATES);
+  const [updates, setUpdates] = useState<UpdateApp[]>([]);
   const [loadingUpdates, setLoadingUpdates] = useState(false);
   const [updateStatuses, setUpdateStatuses] = useState<Record<string, "idle" | "running" | "success" | "error">>({});
   const [installStatuses, setInstallStatuses] = useState<Record<string, InstallationStatus>>({});

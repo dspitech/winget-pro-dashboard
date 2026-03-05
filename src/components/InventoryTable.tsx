@@ -19,11 +19,10 @@ export function InventoryTable({ externalApps, compact = false }: InventoryTable
   const { isConnected } = useServer();
   const { inventory: persistedInventory, saveScanData } = useScanData();
   const [apps, setApps] = useState<AppEntry[]>(() => {
-    // Charger depuis les données persistées au démarrage
     if (persistedInventory?.apps) {
       return persistedInventory.apps;
     }
-    return MOCK_APPS;
+    return [];
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -36,9 +36,9 @@ export function SettingsPage() {
         <div className="space-y-3">
           {[
             { label: "Thème", value: "Dark (Cyberpunk)" },
-            { label: "Langue", value: "Français" },
+            { label: "Langue", value: navigator.language || "fr-FR" },
             { label: "Police monospace", value: "JetBrains Mono" },
-            { label: "Animations", value: "Activées" },
+            { label: "Fuseau horaire", value: Intl.DateTimeFormat().resolvedOptions().timeZone },
           ].map(item => (
             <div key={item.label} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-1/30 border border-border/50">
               <span className="text-xs text-muted-foreground font-mono">{item.label}</span>

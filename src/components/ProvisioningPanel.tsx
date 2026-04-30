@@ -596,6 +596,8 @@ export function ProvisioningPanel({ mode }: { mode: Mode }) {
             next.delete(id);
             return next;
           });
+          // Re-scan automatique après désinstallation réussie
+          refreshInventory();
         }
       });
     });

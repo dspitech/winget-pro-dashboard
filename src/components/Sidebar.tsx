@@ -5,6 +5,7 @@ import {
   ClipboardList, Cpu,
 } from "lucide-react";
 import { useServer } from "@/contexts/ServerContext";
+import { useAutoScan } from "@/contexts/AutoScanContext";
 
 export type PageId = "dashboard" | "inventory" | "discovery" | "install" | "uninstall" | "updates" | "scan" | "report" | "network" | "system" | "logs" | "settings";
 
@@ -63,6 +64,7 @@ interface SidebarProps {
 
 export function Sidebar({ activePage, onNavigate }: SidebarProps) {
   const { status, isConnected, isChecking, recheck } = useServer();
+  const { isScanning, lastAutoScan, inventory } = useAutoScan();
 
   return (
     <aside className="flex flex-col w-64 min-h-screen bg-sidebar border-r border-border">
@@ -96,6 +98,39 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
           {!isConnected && !isChecking && <div className="text-[10px] text-muted-foreground font-mono">Cliquer pour réessayer</div>}
         </div>
       </button>
+
+      {/* Auto-scan indicator */}
+      {isConnected && (
+        <div className="mx-4 mb-3 px-3 py-2 rounded-lg bg-surface-1/50 border border-border/50">
+          <div className="flex items-center gap-2">
+            {isScanning ? (
+              <>
+                <Loader2 className="w-3 h-3 text-neon-cyan animate-spin flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] font-mono text-neon-cyan truncate">Scan auto en cours…</div>
+                  <div className="text-[9px] text-muted-foreground font-mono">winget list + upgrade</div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-3 h-3 rounded-full bg-neon-green/20 border border-neon-green flex items-center justify-center flex-shrink-0">
+                  <div className="w-1 h-1 rounded-full bg-neon-green pulse-dot" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] font-mono text-neon-green truncate">
+                    {inventory ? `${inventory.total} apps · ${inventory.updates} MàJ` : "Données prêtes"}
+                  </div>
+                  <div className="text-[9px] text-muted-foreground font-mono truncate">
+                    {lastAutoScan
+                      ? `MAJ ${lastAutoScan.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`
+                      : "En attente du scan"}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-1 overflow-y-auto space-y-4">

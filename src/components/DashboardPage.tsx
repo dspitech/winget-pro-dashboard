@@ -7,6 +7,7 @@ import {
   Cpu, MemoryStick, Server, Layers, BarChart3, PieChart as PieChartIcon
 } from "lucide-react";
 import { useServer } from "@/contexts/ServerContext";
+import { useAutoScan } from "@/contexts/AutoScanContext";
 import { fetchInventory, fetchUpdates, fetchNetworkInfo, AppEntry, NetworkInfo } from "@/lib/winget-api";
 import { useScanData } from "@/hooks/use-scan-data";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart";
@@ -23,52 +24,17 @@ const COLORS = {
 
 export function DashboardPage() {
   const { status, isConnected } = useServer();
-  const { inventory: persistedInventory, lastScanTime, saveScanData } = useScanData();
-  const [inventory, setInventory] = useState<AppEntry[]>(() => persistedInventory?.apps || []);
-  const [updates, setUpdates] = useState<AppEntry[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [lastScan, setLastScan] = useState<Date | null>(lastScanTime);
-  const [networkData, setNetworkData] = useState<NetworkInfo | null>(null);
+  const { inventory: autoInv, updates: autoUpd, network: autoNet, isScanning, lastAutoScan, rescan } = useAutoScan();
+  const { inventory: persistedInventory, lastScanTime } = useScanData();
 
-  useEffect(() => {
-    if (persistedInventory?.apps && persistedInventory.apps.length > 0) {
-      setInventory(persistedInventory.apps);
-      setLastScan(lastScanTime);
-      setLoading(false);
-    } else if (isConnected) {
-      loadData();
-    } else {
-      setLoading(false);
-    }
-  }, [isConnected, persistedInventory, lastScanTime]);
+  // Source unique : auto-scan en priorité, sinon cache localStorage
+  const inventory: AppEntry[] = autoInv?.apps || persistedInventory?.apps || [];
+  const updates: AppEntry[] = autoUpd?.updates || [];
+  const networkData: NetworkInfo | null = autoNet;
+  const lastScan: Date | null = lastAutoScan || lastScanTime;
+  const loading = isScanning && inventory.length === 0;
 
-  const loadData = async () => {
-    if (!isConnected) return;
-    setLoading(true);
-    try {
-      const [invData, updData, netData] = await Promise.all([
-        fetchInventory().catch(() => ({ apps: [], total: 0, upToDate: 0, updates: 0, timestamp: new Date().toISOString() })),
-        fetchUpdates().catch(() => ({ updates: [], total: 0, timestamp: new Date().toISOString() })),
-        fetchNetworkInfo().catch(() => null),
-      ]);
-      setNetworkData(netData);
-      setInventory(invData.apps || []);
-      setUpdates(updData.updates || []);
-      const scanTime = new Date();
-      setLastScan(scanTime);
-      if (invData.apps && invData.apps.length > 0) {
-        saveScanData(invData);
-      }
-      setLoading(false);
-    } catch (err) {
-      console.error("Error loading dashboard data:", err);
-      if (persistedInventory?.apps) {
-        setInventory(persistedInventory.apps);
-        setLastScan(lastScanTime);
-      }
-      setLoading(false);
-    }
-  };
+  const loadData = () => rescan();
 
   const stats = useMemo(() => {
     const total = inventory.length;

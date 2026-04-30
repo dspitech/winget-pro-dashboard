@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { installPackage, uninstallPackage, upgradePackage, upgradeAll, fetchUpdates, fetchInventory, SSEEventType, AppEntry } from "@/lib/winget-api";
 import { useServer } from "@/contexts/ServerContext";
 import { useScanData } from "@/hooks/use-scan-data";
+import { useAutoScan } from "@/contexts/AutoScanContext";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -214,6 +215,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 export function ProvisioningPanel({ mode }: { mode: Mode }) {
   const { isConnected } = useServer();
   const { inventory: persistedInventory } = useScanData();
+  const { refreshInventory } = useAutoScan();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedApps, setSelectedApps] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");

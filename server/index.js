@@ -23,29 +23,6 @@ function checkIsAdmin() {
   });
 }
 
-/**
- * Relance le serveur en mode Administrateur si nécessaire
- */
-async function ensureAdmin() {
-  const isAdmin = await checkIsAdmin();
-  
-  if (!isAdmin && process.platform === "win32") {
-    console.log("🛡️  Droits administrateur requis. Tentative d'élévation...");
-    
-    // Commande pour relancer node avec les privilèges admin via PowerShell
-    const command = `Start-Process node -ArgumentList '"${process.argv[1]}"' -Verb RunAs`;
-    
-    exec(`powershell -Command "${command}"`, (err) => {
-      if (err) {
-        console.error("❌ Échec de l'élévation des privilèges :", err.message);
-      }
-      process.exit(); // Ferme l'instance actuelle (non-admin)
-    });
-    return false;
-  }
-  return true;
-}
-
 // ─── INITIALISATION DU SERVEUR ──────────────────────────────────────────────
 
 async function init() {

@@ -410,7 +410,7 @@ async function init() {
     sendEvent("start", `Installation de ${id} (Mode Admin)...`);
     sendEvent("progress", JSON.stringify({ step: currentStep, message: progressSteps[currentStep], percent: 0 }));
 
-    const child = spawn("powershell", [
+    const child = spawn(POWERSHELL_EXE, [
       "-NoProfile", 
       "-Command", 
       `winget install --id "${id}" --silent --accept-package-agreements --accept-source-agreements`
@@ -484,7 +484,7 @@ async function init() {
 
     sendEvent("start", `Désinstallation de ${id} (Mode Admin)...`);
 
-    const child = spawn("powershell", [
+    const child = spawn(POWERSHELL_EXE, [
       "-NoProfile",
       "-Command",
       `winget uninstall --id "${id}" --silent`,
@@ -515,7 +515,7 @@ async function init() {
       ? 'winget upgrade --all --silent --accept-package-agreements --accept-source-agreements'
       : `winget upgrade --id "${id}" --silent --accept-package-agreements --accept-source-agreements`;
 
-    const child = spawn("powershell", ["-NoProfile", "-Command", command]);
+    const child = spawn(POWERSHELL_EXE, ["-NoProfile", "-Command", command]);
 
     child.stdout.on("data", (data) => sendEvent("output", data.toString().trim()));
     child.stderr.on("data", (data) => sendEvent("output", data.toString().trim()));

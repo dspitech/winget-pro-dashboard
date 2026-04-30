@@ -223,9 +223,7 @@ export interface NetworkInfo {
 
 export async function fetchNetworkInfo(): Promise<NetworkInfo> {
   try {
-    const res = await fetch(`${API_BASE}/network`, { signal: AbortSignal.timeout(20000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    return await fetchJson<NetworkInfo>("/network", 20000);
   } catch {
     return { ok: false, error: "Impossible de récupérer les infos réseau" };
   }
@@ -245,9 +243,7 @@ export interface SystemInfo {
 
 export async function fetchSystemInfo(): Promise<SystemInfo> {
   try {
-    const res = await fetch(`${API_BASE}/system`, { signal: AbortSignal.timeout(25000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    return await fetchJson<SystemInfo>("/system", 25000);
   } catch {
     return { ok: false, error: "Impossible de récupérer les infos système" };
   }

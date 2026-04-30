@@ -6,6 +6,8 @@ const os = require("os");
 
 const app = express();
 const PORT = 3001;
+const HOST = "127.0.0.1";
+const POWERSHELL_EXE = process.env.WINGET_POWERSHELL || "powershell";
 
 // ─── DÉTECTION / AUTO-ÉLÉVATION ─────────────────────────────────────────────
 
@@ -47,15 +49,14 @@ async function ensureAdmin() {
 // ─── INITIALISATION DU SERVEUR ──────────────────────────────────────────────
 
 async function init() {
-  // On ne lance le reste que si on est admin
-  if (!(await ensureAdmin())) return;
+  const isAdmin = await checkIsAdmin();
   app.use(cors({ origin: "*" }));
   app.use(express.json());
 
   function runPowerShell(command, timeoutMs = 60000) {
     return new Promise((resolve, reject) => {
       // Utiliser spawn pour mieux gérer les erreurs
-      const child = spawn("powershell", [
+      const child = spawn(POWERSHELL_EXE, [
         "-NonInteractive",
         "-NoProfile",
         "-Command",
@@ -188,21 +189,40 @@ async function init() {
     return sendEvent;
   }
 
-  // ─── ROUTES API (SIMPLIFIÉES CAR LE SERVEUR EST DÉJÀ ADMIN) ────────────────
+  // ─── ROUTES API ───────────────────────────────────────────────────────────
+
+  app.get("/api/health", (req, res) => {
+    res.json({ ok: true, server: true, timestamp: new Date().toISOString() });
+  });
 
   app.get("/api/status", async (req, res) => {
     try {
-      const output = await runPowerShell("winget --version", 5000);
+      const [wingetOutput, psOutput] = await Promise.all([
+        runPowerShell("winget --version", 5000),
+        runPowerShell("$PSVersionTable.PSVersion.ToString()", 5000).catch(() => "N/A"),
+      ]);
       res.json({ 
         ok: true, 
-        isAdmin: true,
-        wingetVersion: output.trim(),
+        server: true,
+        isAdmin,
+        wingetAvailable: true,
+        wingetVersion: wingetOutput.trim(),
+        powershellVersion: psOutput.trim(),
         platform: `${os.platform()} ${os.release()}`,
         hostname: os.hostname(),
         user: os.userInfo().username,
       });
     } catch (err) {
-      res.status(503).json({ ok: false, error: "winget non disponible" });
+      res.json({
+        ok: true,
+        server: true,
+        isAdmin,
+        wingetAvailable: false,
+        platform: `${os.platform()} ${os.release()}`,
+        hostname: os.hostname(),
+        user: os.userInfo().username,
+        error: "winget non disponible dans ce terminal",
+      });
     }
   });
 

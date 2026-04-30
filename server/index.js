@@ -733,12 +733,13 @@ async function init() {
     }
   });
 
-  app.listen(PORT, () => {
+  app.listen(PORT, HOST, () => {
     console.log(`
-🚀 SERVEUR ADMIN ACTIF
-----------------------
-URL : http://localhost:${PORT}
-SÉCURITÉ : Mode Privilégié Activé
+🚀 SERVEUR LOCAL WINGET ACTIF
+-----------------------------
+URL : http://${HOST}:${PORT}
+API : http://${HOST}:${PORT}/api/health
+SÉCURITÉ : ${isAdmin ? "Mode administrateur" : "Mode standard — scan OK, admin recommandé pour installation/désinstallation"}
     `);
   });
 }

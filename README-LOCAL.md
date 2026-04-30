@@ -36,18 +36,19 @@ git clone https://github.com/dspitech/Winget-inventory-report.git
 cd Winget-inventory-report
 ```
 
-### 2. Installer les dépendances du serveur
+### 2. Installer les dépendances
 
 ```bash
+npm install
 cd server
 npm install
 ```
 
-### 3. Lancer le serveur API local
+### 3. Lancer l'application locale complète
 
 ```bash
-# Dans le dossier server/
-npm start
+# À la racine du projet
+npm run local
 ```
 
 Vous devriez voir :
@@ -55,7 +56,7 @@ Vous devriez voir :
 ╔══════════════════════════════════════════════════════╗
 ║       WinGet Admin Console — Serveur Local API       ║
 ╠══════════════════════════════════════════════════════╣
-║  ✓ Serveur démarré sur http://localhost:3001         ║
+║  ✓ Serveur démarré sur http://127.0.0.1:3001        ║
 ╚══════════════════════════════════════════════════════╝
 ```
 
@@ -63,9 +64,9 @@ Vous devriez voir :
 
 Ouvrez votre navigateur sur :
 - **Depuis Lovable** : https://id-preview--7a8cb5e9-1bd7-4881-8d13-345c3712a73e.lovable.app
-- **En local** : `npm run dev` dans le dossier racine, puis http://localhost:5173
+- **En local** : `npm run local`, puis http://127.0.0.1:5173
 
-La barre latérale affichera **"PC connecté"** avec votre hostname et version winget.
+La barre latérale détecte automatiquement le serveur et affiche **"PC connecté"** avec votre hostname, la version winget, puis lance le scan.
 
 ---
 

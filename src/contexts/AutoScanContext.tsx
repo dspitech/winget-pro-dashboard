@@ -36,9 +36,6 @@ const AutoScanContext = createContext<AutoScanContextValue>({
   refreshInventory: async () => {},
 });
 
-// TTL : ne pas re-scanner si données < 5 minutes
-const CACHE_TTL_MS = 5 * 60 * 1000;
-
 export function AutoScanProvider({ children }: { children: ReactNode }) {
   const { isConnected } = useServer();
   const { inventory: cachedInventory, lastScanTime, saveScanData } = useScanData();
@@ -63,19 +60,18 @@ export function AutoScanProvider({ children }: { children: ReactNode }) {
     if (!isConnected) return;
     setIsScanning(true);
     try {
-      const [inv, upd, net, sys] = await Promise.all([
-        fetchInventory().catch(() => null),
-        fetchUpdates().catch(() => null),
-        fetchNetworkInfo().catch(() => null),
-        fetchSystemInfo().catch(() => null),
-      ]);
-      if (inv && inv.apps) {
-        setInventory(inv);
-        saveScanData(inv);
-      }
-      if (upd) setUpdates(upd);
-      if (net) setNetwork(net);
-      if (sys) setSystem(sys);
+      const tasks = [
+        fetchInventory().then((inv) => {
+          if (inv?.apps) {
+            setInventory(inv);
+            saveScanData(inv);
+          }
+        }),
+        fetchUpdates().then((upd) => setUpdates(upd)),
+        fetchNetworkInfo().then((net) => setNetwork(net)),
+        fetchSystemInfo().then((sys) => setSystem(sys)),
+      ];
+      await Promise.allSettled(tasks);
       setLastAutoScan(new Date());
     } finally {
       setIsScanning(false);
@@ -86,15 +82,16 @@ export function AutoScanProvider({ children }: { children: ReactNode }) {
     if (!isConnected) return;
     setIsScanning(true);
     try {
-      const [inv, upd] = await Promise.all([
-        fetchInventory().catch(() => null),
-        fetchUpdates().catch(() => null),
-      ]);
-      if (inv && inv.apps) {
-        setInventory(inv);
-        saveScanData(inv);
-      }
-      if (upd) setUpdates(upd);
+      const tasks = [
+        fetchInventory().then((inv) => {
+          if (inv?.apps) {
+            setInventory(inv);
+            saveScanData(inv);
+          }
+        }),
+        fetchUpdates().then((upd) => setUpdates(upd)),
+      ];
+      await Promise.allSettled(tasks);
       setLastAutoScan(new Date());
     } finally {
       setIsScanning(false);
@@ -105,25 +102,8 @@ export function AutoScanProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isConnected || hasAutoScannedRef.current) return;
 
-    // Si le cache est récent, on saute le scan
-    const now = Date.now();
-    const cacheAge = lastScanTime ? now - lastScanTime.getTime() : Infinity;
-    const cacheValid = cachedInventory && cacheAge < CACHE_TTL_MS;
-
     hasAutoScannedRef.current = true;
-
-    if (cacheValid) {
-      // Charger malgré tout network + system (non persistés) en arrière-plan
-      Promise.all([
-        fetchNetworkInfo().catch(() => null),
-        fetchSystemInfo().catch(() => null),
-      ]).then(([net, sys]) => {
-        if (net) setNetwork(net);
-        if (sys) setSystem(sys);
-      });
-    } else {
-      performScan();
-    }
+    performScan();
   }, [isConnected, cachedInventory, lastScanTime, performScan]);
 
   // Si on perd la connexion, autoriser un nouveau auto-scan à la reconnexion

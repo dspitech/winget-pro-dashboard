@@ -1,10 +1,30 @@
 /**
  * Service API — Communication avec le serveur local winget
- * L'app tente de se connecter à http://localhost:3001
- * En cas d'échec, elle bascule automatiquement en mode démo (données mock)
+ * L'app détecte automatiquement le serveur local Winget sur la machine.
  */
 
-export const API_BASE = "http://localhost:3001/api";
+export const API_CANDIDATES = [
+  "http://127.0.0.1:3001/api",
+  "http://localhost:3001/api",
+];
+
+const API_BASE_STORAGE_KEY = "winget-api-base";
+const storedApiBase = typeof window !== "undefined" ? window.localStorage.getItem(API_BASE_STORAGE_KEY) : null;
+export let API_BASE = storedApiBase || API_CANDIDATES[0];
+
+function setApiBase(base: string) {
+  API_BASE = base;
+  if (typeof window !== "undefined") window.localStorage.setItem(API_BASE_STORAGE_KEY, base);
+}
+
+async function fetchJson<T>(path: string, timeoutMs = 30000, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
 
 export interface AppEntry {
   name: string;
@@ -18,6 +38,10 @@ export interface AppEntry {
 
 export interface SystemStatus {
   ok: boolean;
+  server?: boolean;
+  apiBase?: string;
+  powershellVersion?: string;
+  wingetAvailable?: boolean;
   wingetVersion?: string;
   platform?: string;
   hostname?: string;
@@ -49,44 +73,50 @@ export interface UpdatesResult {
 // ─── Vérification du statut du serveur ────────────────────────────────────
 
 export async function checkServerStatus(): Promise<SystemStatus> {
-  try {
-    const res = await fetch(`${API_BASE}/status`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch {
-    return { ok: false, error: "Serveur local non disponible (mode démo actif)" };
+  const candidates = Array.from(new Set([API_BASE, ...API_CANDIDATES]));
+
+  for (const base of candidates) {
+    try {
+      const health = await fetch(`${base}/health`, { signal: AbortSignal.timeout(900) });
+      if (!health.ok) throw new Error(`HTTP ${health.status}`);
+      setApiBase(base);
+
+      try {
+        const status = await fetchJson<SystemStatus>("/status", 2500);
+        return { ...status, ok: true, server: true, apiBase: base };
+      } catch (statusError) {
+        return {
+          ok: true,
+          server: true,
+          apiBase: base,
+          error: (statusError as Error).message,
+        };
+      }
+    } catch {
+      // Essayer l'adresse suivante.
+    }
   }
+
+  return { ok: false, server: false, error: "Serveur local indisponible — lancez npm run local" };
 }
 
 // ─── Inventaire ────────────────────────────────────────────────────────────
 
 export async function fetchInventory(): Promise<InventoryResult> {
-  const res = await fetch(`${API_BASE}/inventory`, { signal: AbortSignal.timeout(120000) });
-  if (!res.ok) throw new Error(`Erreur serveur: ${res.status}`);
-  return await res.json();
+  return await fetchJson<InventoryResult>("/inventory", 120000);
 }
 
 // ─── Recherche ─────────────────────────────────────────────────────────────
 
 export async function searchPackages(query: string): Promise<SearchResult> {
-  const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`, {
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!res.ok) throw new Error(`Erreur recherche: ${res.status}`);
-  return await res.json();
+  return await fetchJson<SearchResult>(`/search?q=${encodeURIComponent(query)}`, 30000);
 }
 
 // ─── Mises à jour ──────────────────────────────────────────────────────────
 
 export async function fetchUpdates(): Promise<UpdatesResult> {
   try {
-    const res = await fetch(`${API_BASE}/updates`, { signal: AbortSignal.timeout(120000) });
-    if (!res.ok) {
-      // Si le serveur retourne une erreur, retourner une liste vide plutôt que de lancer une erreur
-      console.warn(`Erreur HTTP ${res.status} lors de la récupération des mises à jour`);
-      return { updates: [], total: 0, timestamp: new Date().toISOString() };
-    }
-    const data = await res.json();
+    const data = await fetchJson<UpdatesResult>("/updates", 120000);
     // S'assurer que la réponse contient bien un tableau d'updates
     return {
       updates: Array.isArray(data?.updates) ? data.updates : [],
@@ -194,9 +224,7 @@ export interface NetworkInfo {
 
 export async function fetchNetworkInfo(): Promise<NetworkInfo> {
   try {
-    const res = await fetch(`${API_BASE}/network`, { signal: AbortSignal.timeout(20000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    return await fetchJson<NetworkInfo>("/network", 20000);
   } catch {
     return { ok: false, error: "Impossible de récupérer les infos réseau" };
   }
@@ -216,9 +244,7 @@ export interface SystemInfo {
 
 export async function fetchSystemInfo(): Promise<SystemInfo> {
   try {
-    const res = await fetch(`${API_BASE}/system`, { signal: AbortSignal.timeout(25000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    return await fetchJson<SystemInfo>("/system", 25000);
   } catch {
     return { ok: false, error: "Impossible de récupérer les infos système" };
   }

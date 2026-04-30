@@ -6,6 +6,8 @@ const os = require("os");
 
 const app = express();
 const PORT = 3001;
+const HOST = "127.0.0.1";
+const POWERSHELL_EXE = process.env.WINGET_POWERSHELL || "powershell";
 
 // ─── DÉTECTION / AUTO-ÉLÉVATION ─────────────────────────────────────────────
 
@@ -21,41 +23,25 @@ function checkIsAdmin() {
   });
 }
 
-/**
- * Relance le serveur en mode Administrateur si nécessaire
- */
-async function ensureAdmin() {
-  const isAdmin = await checkIsAdmin();
-  
-  if (!isAdmin && process.platform === "win32") {
-    console.log("🛡️  Droits administrateur requis. Tentative d'élévation...");
-    
-    // Commande pour relancer node avec les privilèges admin via PowerShell
-    const command = `Start-Process node -ArgumentList '"${process.argv[1]}"' -Verb RunAs`;
-    
-    exec(`powershell -Command "${command}"`, (err) => {
-      if (err) {
-        console.error("❌ Échec de l'élévation des privilèges :", err.message);
-      }
-      process.exit(); // Ferme l'instance actuelle (non-admin)
-    });
-    return false;
-  }
-  return true;
-}
-
 // ─── INITIALISATION DU SERVEUR ──────────────────────────────────────────────
 
 async function init() {
-  // On ne lance le reste que si on est admin
-  if (!(await ensureAdmin())) return;
+  const isAdmin = await checkIsAdmin();
+  app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    if (req.method === "OPTIONS") return res.sendStatus(204);
+    next();
+  });
   app.use(cors({ origin: "*" }));
   app.use(express.json());
 
   function runPowerShell(command, timeoutMs = 60000) {
     return new Promise((resolve, reject) => {
       // Utiliser spawn pour mieux gérer les erreurs
-      const child = spawn("powershell", [
+      const child = spawn(POWERSHELL_EXE, [
         "-NonInteractive",
         "-NoProfile",
         "-Command",
@@ -188,21 +174,40 @@ async function init() {
     return sendEvent;
   }
 
-  // ─── ROUTES API (SIMPLIFIÉES CAR LE SERVEUR EST DÉJÀ ADMIN) ────────────────
+  // ─── ROUTES API ───────────────────────────────────────────────────────────
+
+  app.get("/api/health", (req, res) => {
+    res.json({ ok: true, server: true, timestamp: new Date().toISOString() });
+  });
 
   app.get("/api/status", async (req, res) => {
     try {
-      const output = await runPowerShell("winget --version", 5000);
+      const [wingetOutput, psOutput] = await Promise.all([
+        runPowerShell("winget --version", 5000),
+        runPowerShell("$PSVersionTable.PSVersion.ToString()", 5000).catch(() => "N/A"),
+      ]);
       res.json({ 
         ok: true, 
-        isAdmin: true,
-        wingetVersion: output.trim(),
+        server: true,
+        isAdmin,
+        wingetAvailable: true,
+        wingetVersion: wingetOutput.trim(),
+        powershellVersion: psOutput.trim(),
         platform: `${os.platform()} ${os.release()}`,
         hostname: os.hostname(),
         user: os.userInfo().username,
       });
     } catch (err) {
-      res.status(503).json({ ok: false, error: "winget non disponible" });
+      res.json({
+        ok: true,
+        server: true,
+        isAdmin,
+        wingetAvailable: false,
+        platform: `${os.platform()} ${os.release()}`,
+        hostname: os.hostname(),
+        user: os.userInfo().username,
+        error: "winget non disponible dans ce terminal",
+      });
     }
   });
 
@@ -390,7 +395,7 @@ async function init() {
     sendEvent("start", `Installation de ${id} (Mode Admin)...`);
     sendEvent("progress", JSON.stringify({ step: currentStep, message: progressSteps[currentStep], percent: 0 }));
 
-    const child = spawn("powershell", [
+    const child = spawn(POWERSHELL_EXE, [
       "-NoProfile", 
       "-Command", 
       `winget install --id "${id}" --silent --accept-package-agreements --accept-source-agreements`
@@ -464,7 +469,7 @@ async function init() {
 
     sendEvent("start", `Désinstallation de ${id} (Mode Admin)...`);
 
-    const child = spawn("powershell", [
+    const child = spawn(POWERSHELL_EXE, [
       "-NoProfile",
       "-Command",
       `winget uninstall --id "${id}" --silent`,
@@ -495,7 +500,7 @@ async function init() {
       ? 'winget upgrade --all --silent --accept-package-agreements --accept-source-agreements'
       : `winget upgrade --id "${id}" --silent --accept-package-agreements --accept-source-agreements`;
 
-    const child = spawn("powershell", ["-NoProfile", "-Command", command]);
+    const child = spawn(POWERSHELL_EXE, ["-NoProfile", "-Command", command]);
 
     child.stdout.on("data", (data) => sendEvent("output", data.toString().trim()));
     child.stderr.on("data", (data) => sendEvent("output", data.toString().trim()));
@@ -713,12 +718,13 @@ async function init() {
     }
   });
 
-  app.listen(PORT, () => {
+  app.listen(PORT, HOST, () => {
     console.log(`
-🚀 SERVEUR ADMIN ACTIF
-----------------------
-URL : http://localhost:${PORT}
-SÉCURITÉ : Mode Privilégié Activé
+🚀 SERVEUR LOCAL WINGET ACTIF
+-----------------------------
+URL : http://${HOST}:${PORT}
+API : http://${HOST}:${PORT}/api/health
+SÉCURITÉ : ${isAdmin ? "Mode administrateur" : "Mode standard — scan OK, admin recommandé pour installation/désinstallation"}
     `);
   });
 }

@@ -5,6 +5,7 @@ interface ServerContextValue {
   status: SystemStatus | null;
   isConnected: boolean;
   isChecking: boolean;
+  connectionError: string | null;
   recheck: () => void;
   /** Date de la dernière vérification réussie */
   lastCheck: Date | null;
@@ -14,12 +15,15 @@ const ServerContext = createContext<ServerContextValue>({
   status: null,
   isConnected: false,
   isChecking: true,
+  connectionError: null,
   recheck: () => {},
   lastCheck: null,
 });
 
-const FAST_POLL_MS = 3000;   // 3s tant qu'on est déconnecté → reconnexion rapide
+const STARTUP_POLL_MS = 900;  // détection quasi immédiate quand le serveur démarre après l'UI
+const FAST_POLL_MS = 2000;   // 2s tant qu'on est déconnecté → reconnexion rapide
 const SLOW_POLL_MS = 30000;  // 30s une fois connecté
+const STARTUP_FAST_CHECKS = 12;
 
 export function ServerProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -27,6 +31,8 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   const [lastCheck, setLastCheck] = useState<Date | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightRef = useRef(false);
+  const statusRef = useRef<SystemStatus | null>(null);
+  const attemptsRef = useRef(0);
 
   const check = useCallback(async () => {
     if (inFlightRef.current) return;
@@ -34,6 +40,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     setIsChecking(true);
     try {
       const s = await checkServerStatus();
+      statusRef.current = s;
       setStatus(s);
       if (s.ok) setLastCheck(new Date());
     } finally {
@@ -50,7 +57,9 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       await check();
       if (cancelled) return;
-      const delay = status?.ok ? SLOW_POLL_MS : FAST_POLL_MS;
+      attemptsRef.current += 1;
+      const connected = statusRef.current?.ok ?? false;
+      const delay = connected ? SLOW_POLL_MS : attemptsRef.current <= STARTUP_FAST_CHECKS ? STARTUP_POLL_MS : FAST_POLL_MS;
       timerRef.current = setTimeout(loop, delay);
     };
 
@@ -66,13 +75,13 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   }, [status?.ok]);
 
   const recheck = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
+    attemptsRef.current = 0;
     check();
   }, [check]);
 
   return (
     <ServerContext.Provider
-      value={{ status, isConnected: status?.ok ?? false, isChecking, recheck, lastCheck }}
+      value={{ status, isConnected: status?.ok ?? false, isChecking, connectionError: status?.error ?? null, recheck, lastCheck }}
     >
       {children}
     </ServerContext.Provider>

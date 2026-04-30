@@ -75,7 +75,6 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   }, [status?.ok]);
 
   const recheck = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
     attemptsRef.current = 0;
     check();
   }, [check]);

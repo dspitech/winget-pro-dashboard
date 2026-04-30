@@ -447,6 +447,8 @@ export function ProvisioningPanel({ mode }: { mode: Mode }) {
               progress: { step: 5, message: "Installation terminée", percent: 100 }
             } 
           }));
+          // Re-scan automatique de l'inventaire après install réussi
+          refreshInventory();
           // Fermer le popup de progression si toutes les installations sont terminées
           const allDone = appsToInstall.every(appId => {
             const status = installStatuses[appId];
@@ -529,6 +531,7 @@ export function ProvisioningPanel({ mode }: { mode: Mode }) {
     upgradePackage(app.id, (type, _) => {
       if (type === "success") {
         setUpdateStatuses(prev => ({ ...prev, [app.id]: "success" }));
+        refreshInventory();
       }
       if (type === "error") setUpdateStatuses(prev => ({ ...prev, [app.id]: "error" }));
     });
@@ -552,6 +555,7 @@ export function ProvisioningPanel({ mode }: { mode: Mode }) {
       if (type === "success") {
         setStatus("success");
         selectedUpdates.forEach(id => setUpdateStatuses(prev => ({ ...prev, [id]: "success" })));
+        refreshInventory();
       }
       if (type === "error") setStatus("error");
     });

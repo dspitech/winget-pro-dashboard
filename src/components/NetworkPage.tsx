@@ -14,9 +14,15 @@ export function NetworkPage() {
   const loadNetwork = async () => {
     if (!isConnected) return;
     setLoading(true);
-    const data = await fetchNetworkInfo();
-    setNetworkData(data);
-    setLoading(false);
+    try {
+      const data = await fetchNetworkInfo();
+      console.log("NetworkInfo loaded:", data);
+      setNetworkData(data);
+    } catch (err) {
+      console.error("Erreur lors du chargement des infos réseau:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {

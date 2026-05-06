@@ -4,6 +4,7 @@
  */
 
 export const API_CANDIDATES = [
+  "/api",  // Proxy local via Vite (développement)
   "http://127.0.0.1:3001/api",
   "http://localhost:3001/api",
 ];
@@ -161,7 +162,7 @@ function streamSSE(url: string, options: RequestInit, onEvent: SSEHandler): () =
             try {
               const json = JSON.parse(line.slice(5).trim());
               onEvent(json.type as SSEEventType, json.data);
-            } catch {}
+            } catch { }
           }
         }
       }
@@ -224,9 +225,11 @@ export interface NetworkInfo {
 
 export async function fetchNetworkInfo(): Promise<NetworkInfo> {
   try {
-    return await fetchJson<NetworkInfo>("/network", 20000);
-  } catch {
-    return { ok: false, error: "Impossible de récupérer les infos réseau" };
+    const data = await fetchJson<NetworkInfo>("/network", 20000);
+    return { ok: true, ...data };
+  } catch (err) {
+    console.error("Erreur fetchNetworkInfo:", err);
+    return { ok: false, error: (err as Error).message || "Impossible de récupérer les infos réseau" };
   }
 }
 
@@ -244,9 +247,11 @@ export interface SystemInfo {
 
 export async function fetchSystemInfo(): Promise<SystemInfo> {
   try {
-    return await fetchJson<SystemInfo>("/system", 25000);
-  } catch {
-    return { ok: false, error: "Impossible de récupérer les infos système" };
+    const data = await fetchJson<SystemInfo>("/system", 25000);
+    return { ok: true, ...data };
+  } catch (err) {
+    console.error("Erreur fetchSystemInfo:", err);
+    return { ok: false, error: (err as Error).message || "Impossible de récupérer les infos système" };
   }
 }
 
@@ -281,7 +286,7 @@ export function startScan(onEvent: ScanHandler): () => void {
             try {
               const json = JSON.parse(line.slice(5).trim());
               onEvent(json.type as ScanEventType, json.data);
-            } catch {}
+            } catch { }
           }
         }
       }

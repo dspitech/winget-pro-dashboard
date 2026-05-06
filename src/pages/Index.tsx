@@ -48,20 +48,14 @@ const Index = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Géolocalisation via API publique
+  // Géolocalisation via timezone navigateur (pas d'appel externe)
   useEffect(() => {
-    fetch("https://ipapi.co/json/", { signal: AbortSignal.timeout(5000) })
-      .then(r => r.json())
-      .then(data => {
-        if (data.city) {
-          setGeoInfo({ city: data.city, country: data.country_name, timezone: data.timezone });
-        }
-      })
-      .catch(() => {
-        // Fallback: utiliser le timezone du navigateur
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        setGeoInfo({ city: "—", country: "—", timezone: tz });
-      });
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      setGeoInfo({ city: "—", country: "—", timezone: tz });
+    } catch {
+      setGeoInfo({ city: "—", country: "—", timezone: "UTC" });
+    }
   }, []);
 
   const page = pageTitle[activePage];

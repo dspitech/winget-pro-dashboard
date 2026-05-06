@@ -13,9 +13,15 @@ export function SystemInfoPage() {
   const loadSystem = async () => {
     if (!isConnected) return;
     setLoading(true);
-    const data = await fetchSystemInfo();
-    setSysInfo(data);
-    setLoading(false);
+    try {
+      const data = await fetchSystemInfo();
+      console.log("SystemInfo loaded:", data);
+      setSysInfo(data);
+    } catch (err) {
+      console.error("Erreur lors du chargement des infos système:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
